@@ -15,22 +15,27 @@ trait NativeZ3Quantified extends QuantifiedSolver { self =>
   import program.trees._
   import SolverResponses._
 
-  override lazy val name = "nativez3-q"
+  override
+  lazy val name = "nativez3-q"
 
   protected implicit val semantics: program.Semantics
 
+  type UnderlyingSolver = Z3Quantified
+
   protected var underlying: Z3Quantified {
-    val program: lambdaEncoder.sourceProgram.type
+    val program: self.program.type
   } = _
 
   def getUnderlying = {
     Option(underlying)
   }
 
-  override type UnderlyingSolver = Z3Quantified
+  private[this] def toUnderlying(expr: Expr): Z3AST = {
+    underlying.toZ3Formula(expr)
+  }
 
   override
-  def newSolver(p: Program { val trees: lambdaEncoder.sourceProgram.trees.type }): Z3Quantified { val program: p.type } = {
+  def newSolver(p: Program { val trees: program.trees.type }): Z3Quantified { val program: p.type } = {
     new {
       val program: p.type = p
       val options = self.options
@@ -40,19 +45,22 @@ trait NativeZ3Quantified extends QuantifiedSolver { self =>
   }
 
   def assertCnstr(expr: Expr): Unit = {
-    val (prog, newExpr) = lambdaEncoder.transform(expr)
+    val lambdaEncoder = LambdaEncoder(program)
+    val (program1, expr1) = lambdaEncoder.transform(expr)
 
-    val solver = newSolver(prog).asInstanceOf[Z3Quantified { val program: prog.type }]
+    val monomorphize = Monomorphize(program1)
+    val (program2, expr2) = monomorphize.transform(expr1)
 
-    underlying = solver.asInstanceOf[Z3Quantified { val program: lambdaEncoder.sourceProgram.type }]
+    val solver = newSolver(program2)
+    underlying = solver.asInstanceOf[Z3Quantified { val program: lambdaEncoder.sourceProgram.type }] // @romac - FIXME
 
-    val functions = prog.symbols.functions.values.toSeq
+    val functions = program2.symbols.functions.values.toSeq
     functions
       .map(getFunctionMeaning(_))
-      .map(c => solver.toZ3Formula(c, Map.empty))
+      .map(toUnderlying(_))
       .foreach(solver.assertCnstr(_))
 
-    solver.assertCnstr(solver.toZ3Formula(newExpr))
+    solver.assertCnstr(toUnderlying(expr2))
   }
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
@@ -60,8 +68,8 @@ trait NativeZ3Quantified extends QuantifiedSolver { self =>
       (model: Z3Model) => underlying.extractModel(model),
       underlying.extractUnsatAssumptions)
 
-  override def checkAssumptions(config: Configuration)
-                               (assumptions: Set[Expr]): config.Response[Model, Assumptions] =
+  override
+  def checkAssumptions(config: Configuration)(assumptions: Set[Expr]): config.Response[Model, Assumptions] =
     config.convert(underlying.checkAssumptions(config)(assumptions.map(underlying.toZ3Formula(_))),
       (model: Z3Model) => underlying.extractModel(model),
       underlying.extractUnsatAssumptions)

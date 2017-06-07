@@ -9,11 +9,9 @@ trait QuantifiedSolver extends Solver { self =>
   import program.trees._
   import SolverResponses._
 
-  protected val lambdaEncoder = LambdaEncoder(program)
+  type UnderlyingSolver <: AbstractSolver
 
-  type UnderlyingSolver
-
-  def newSolver(p: Program { val trees: lambdaEncoder.sourceProgram.trees.type }): UnderlyingSolver { val program: p.type }
+  def newSolver(p: Program { val trees: program.trees.type }): UnderlyingSolver { val program: p.type }
 
   def getFunctionMeaning(fd: FunDef): Forall = {
     val body = Equals(

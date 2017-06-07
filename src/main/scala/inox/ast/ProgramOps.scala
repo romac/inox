@@ -109,3 +109,32 @@ object ProgramEncoder {
   }
 }
 
+// trait LiveProgramTransformer { self =>
+//   val sourceProgram: Program
+
+//   import sourceProgram.trees.Expr
+
+//   def transform(expr: Expr): (Program { val trees: sourceProgram.trees.type }, Expr)
+
+//   def compose(that: LiveProgramTransformer { val targetProgram: self.sourceProgram.type }): LiveProgramTransformer {
+//     val sourceProgram: that.sourceProgram.type
+//   } = new LiveProgramTransformer {
+//     val sourceProgram: that.sourceProgram.type = that.sourceProgram
+
+//     def transform(expr: Expr): (Program { val trees: sourceProgram.trees.type }, Expr) = {
+//       val (program, newExpr) = that.transform(expr)
+//       self.transform(program, newExpr)
+//     }
+//   }
+
+//   def andThen(that: LiveProgramTransformer { val sourceProgram: self.sourceProgram.type }): LiveProgramTransformer {
+//     val sourceProgram: self.sourceProgram.type
+//   } = new LiveProgramTransformer {
+//     val sourceProgram: self.sourceProgram.type = self.sourceProgram
+
+//     def transform(expr: Expr): (Program { val trees: sourceProgram.trees.type }, Expr) = {
+//       val (program, newExpr) = self.transform(expr)
+//       that.transform(program, newExpr)
+//     }
+//   }
+// }
