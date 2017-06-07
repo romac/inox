@@ -12,7 +12,7 @@ class SemanticsSuite extends FunSuite {
 
   implicit val symbols = new Symbols(Map.empty, Map.empty)
   val solverNames: Seq[String] = {
-    (if (SolverFactory.hasNativeZ3) Seq("nativez3", "unrollz3") else Nil) ++
+    (if (SolverFactory.hasNativeZ3) Seq("nativez3", "unrollz3", "nativez3-q") else Nil) ++
     (if (SolverFactory.hasZ3) Seq("smt-z3") else Nil) ++
     (if (SolverFactory.hasCVC4) Seq("smt-cvc4") else Nil) ++
     Seq("princess")

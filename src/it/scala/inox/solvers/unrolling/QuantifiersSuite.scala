@@ -11,6 +11,7 @@ class QuantifiersSuite extends TestSuite {
   override def configurations = List(
     ("nativez3",     false, false, false),
     ("nativez3-opt", false, false, false),
+    ("nativez3-q",   false, false, false),
     ("princess",     false, false, false),
     ("smt-z3",       false, false, false),
     ("smt-z3-opt",   false, false, false),

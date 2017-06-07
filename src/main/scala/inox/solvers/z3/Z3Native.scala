@@ -227,9 +227,12 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       unsupported(other)
   }
 
-  protected[z3] def toZ3Formula(expr: Expr, bindings: Map[Variable, Z3AST] = Map.empty): Z3AST = {
+  protected[z3] def toZ3FormulaRec(ex: Expr)(implicit bindings: Map[Variable, Z3AST]): Z3AST = {
+    def rec(ex: Expr)(implicit bindings: Map[Variable, Z3AST]): Z3AST = {
+      toZ3FormulaRec(ex)(bindings)
+    }
 
-    def rec(ex: Expr)(implicit bindings: Map[Variable, Z3AST]): Z3AST = ex match {
+    ex match {
 
       case Let(vd, e, b) =>
         val re = rec(e)
@@ -480,9 +483,10 @@ trait Z3Native extends ADTManagers with Interruptible { self: AbstractSolver =>
       case other =>
         unsupported(other)
     }
+  }
 
-    val res = rec(expr)(bindings)
-    res
+  protected[z3] def toZ3Formula(expr: Expr, bindings: Map[Variable, Z3AST] = Map.empty): Z3AST = {
+    toZ3FormulaRec(expr)(bindings)
   }
 
   protected lazy val emptySeq = {
