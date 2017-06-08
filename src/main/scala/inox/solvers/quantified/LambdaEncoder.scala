@@ -31,7 +31,7 @@ trait LambdaEncoder { self =>
       fd.copy(params = params, returnType = returnType, fullBody = body)
     }
 
-    val newExpr = encode(expr)
+    val newExpr = encode(simplifyFormula(expr))
 
     val allFunctions = functions ++ qLambdas.values.toSeq
 
@@ -63,7 +63,22 @@ trait LambdaEncoder { self =>
 
   def encodeLambdas(expr: Expr): Expr = {
     def go(expr: Expr): Option[Expr] = expr match {
-      case lam: Lambda => Some(instantiateLambda(lam))
+      case lam: Lambda =>
+        Some(instantiateLambda(lam))
+
+      // case Forall(args, body) =>
+      //   val newArgs = args.zip(args.map(_.tpe)) map {
+      //     case (arg, ft: FunctionType) =>
+      //       val sortTpe = mkLambdaSort(ft).typed.toType
+      //       arg.copy(tpe = sortTpe)
+
+      //     case (arg, _) =>
+      //       arg
+      //   }
+
+      //   println(Forall(newArgs, rewriteLambdaTypes(body)))
+      //   Some(Forall(newArgs, rewriteLambdaTypes(body)))
+
       case _ => None
     }
 
@@ -100,31 +115,21 @@ trait LambdaEncoder { self =>
   }
 
   def rewriteLambdaTypes(expr: Expr): Expr = {
-    def go(expr: Expr): Option[Expr] = expr.getType match {
-      case ft: FunctionType =>
-        val sortTpe = lambdaSorts(ft).typed.toType
-        expr match {
-          case v: Variable =>
-            Some(v.copy(tpe = sortTpe))
-          case ai: AsInstanceOf if isFun(ai.tpe) =>
-            Some(ai.copy(tpe = funToSort(ai.tpe)))
-          case _ =>
-            None
-        }
-
+    def go(expr: Expr): Option[Expr] = expr match {
+      case v: Variable =>
+        Some(v.copy(tpe = funToSort(v.tpe)))
+      case ai: AsInstanceOf if isFun(ai.tpe) =>
+        Some(ai.copy(tpe = funToSort(ai.tpe)))
+      case ii: IsInstanceOf if isFun(ii.tpe) =>
+        Some(ii.copy(tpe = funToSort(ii.tpe)))
+      case fs: FiniteSet if isFun(fs.base) =>
+        Some(fs.copy(base = funToSort(fs.base)))
+      case fb: FiniteBag if isFun(fb.base) =>
+        Some(fb.copy(base = funToSort(fb.base)))
+      case fm: FiniteMap if isFun(fm.keyType) || isFun(fm.valueType) =>
+        Some(fm.copy(keyType = funToSort(fm.keyType), valueType = funToSort(fm.valueType)))
       case _ =>
-        expr match {
-          case ii: IsInstanceOf if isFun(ii.tpe) =>
-            Some(ii.copy(tpe = funToSort(ii.tpe)))
-          case fs: FiniteSet if isFun(fs.base) =>
-            Some(fs.copy(base = funToSort(fs.base)))
-          case fb: FiniteBag if isFun(fb.base) =>
-            Some(fb.copy(base = funToSort(fb.base)))
-          case fm: FiniteMap if isFun(fm.keyType) || isFun(fm.valueType) =>
-            Some(fm.copy(keyType = funToSort(fm.keyType), valueType = funToSort(fm.valueType)))
-          case _ =>
-            None
-        }
+        None
     }
 
     exprOps.postMap(go)(expr)
