@@ -51,12 +51,17 @@ trait NativeZ3Quantified extends QuantifiedSolver { self =>
     val lambdaEncoder = LambdaEncoder(monoProgram)
     val (finalProgram, finalExpr) = lambdaEncoder.transform(monoExpr)
 
+    import finalProgram._
+
+    println(finalProgram)
+    println(finalExpr)
+
     val solver = newSolver(finalProgram)
     underlying = solver.asInstanceOf[Z3Quantified { val program: self.program.type }] // @romac - FIXME
 
     val functions = finalProgram.symbols.functions.values.toSeq
     functions
-      .map(getFunctionMeaning(_))
+      .flatMap(getFunctionMeaning(_))
       .map(toUnderlying(_))
       .foreach(solver.assertCnstr(_))
 

@@ -24,16 +24,28 @@ trait LambdaEncoder { self =>
   private val sortCons       = new IncrementalMap[ADTSort, Set[ADTConstructor]]()
 
   def transform(expr: Expr): (Program { val trees: sourceProgram.trees.type }, Expr) = {
-    val functions = symbols.functions.values.toList map { fd =>
+    val simpleExpr = simplifyFormula(expr)
+    val fns = symbols.functions.values.toList
+
+    val allLambdas = (simpleExpr :: fns.map(_.fullBody)) flatMap { expr =>
+      exprOps.collect {
+        case lam: Lambda => Set(lam)
+        case _ => Set.empty[Lambda]
+      } (expr)
+    }
+
+    allLambdas foreach instantiateLambda
+
+    val functions = fns map { fd =>
       val body = encode(fd.fullBody)
       val params = fd.params.map(vd => vd.copy(tpe = funToSort(vd.tpe)))
       val returnType = funToSort(fd.returnType)
       fd.copy(params = params, returnType = returnType, fullBody = body)
     }
 
-    val newExpr = encode(simplifyFormula(expr))
+    val newExpr = encode(simpleExpr)
 
-    val allFunctions = functions ++ qLambdas.values.toSeq
+    val qLambdaDefs = qLambdas.values.toSeq
 
     val adts = symbols.adts.values.toSeq map {
       case cons: ADTConstructor =>
@@ -46,7 +58,8 @@ trait LambdaEncoder { self =>
         sort
     }
 
-    val allADTs = adts ++ lambdaSorts.values.toSeq ++ lambdaCons.bSet.toSeq
+    val allFunctions = functions ++ qLambdaDefs
+    val allADTs = adts ++ lambdaSorts.values.toSeq ++ sortCons.values.flatten.toSeq
 
     val program = new Program {
       val trees: sourceProgram.trees.type = sourceProgram.trees
@@ -66,18 +79,19 @@ trait LambdaEncoder { self =>
       case lam: Lambda =>
         Some(instantiateLambda(lam))
 
-      // case Forall(args, body) =>
-      //   val newArgs = args.zip(args.map(_.tpe)) map {
-      //     case (arg, ft: FunctionType) =>
-      //       val sortTpe = mkLambdaSort(ft).typed.toType
-      //       arg.copy(tpe = sortTpe)
+      case Forall(args, body) =>
+        println(expr)
+        val newArgs = args.zip(args.map(_.tpe)) map {
+          case (arg, ft: FunctionType) =>
+            val sortTpe = mkLambdaSort(ft).typed.toType
+            arg.copy(tpe = sortTpe)
 
-      //     case (arg, _) =>
-      //       arg
-      //   }
+          case (arg, _) =>
+            arg
+        }
 
-      //   println(Forall(newArgs, rewriteLambdaTypes(body)))
-      //   Some(Forall(newArgs, rewriteLambdaTypes(body)))
+        println(Forall(newArgs, rewriteLambdaTypes(body)))
+        Some(Forall(newArgs, rewriteLambdaTypes(body)))
 
       case _ => None
     }
@@ -87,6 +101,8 @@ trait LambdaEncoder { self =>
 
   def rewriteApplications(expr: Expr): Expr = {
     def go(expr: Expr): Option[Expr] = expr match {
+
+      // @romac - FIXME: This should not be needed
       case Application(caller: ADT, args) =>
         val adts = lambdaSorts.values ++ lambdaCons.bSet
         val sym = NoSymbols.withADTs(adts.toSeq)
@@ -189,8 +205,10 @@ trait LambdaEncoder { self =>
     val conss = sortCons.getOrElse(sort, Set.empty).toList
 
     if (conss.isEmpty) {
-      // @romac - FIXME: Throw proper exception
-      sys.error(s"No constructors for type $ft and sort $sort")
+      val consId = FreshIdentifier("LambdaCons", alwaysShowUniqueID = true)
+      val cons = new ADTConstructor(consId, Seq.empty, Some(sort.id), Seq.empty, Set.empty)
+      sortCons += sort -> Set(cons)
+      lambdaSorts += ft -> sort.copy(cons = sort.cons :+ consId)
     }
 
     val lam = Variable.fresh("lam", sort.typed.toType)
@@ -215,13 +233,18 @@ trait LambdaEncoder { self =>
       tpe -> thenBody
     }
 
-    val last = branches.last._2
-    val cases = branches.init.foldRight(last) {
-      case ((tpe, thenBody), elseBody) =>
-        IfExpr(lam.isInstOf(tpe), thenBody, elseBody)
+    val (body, flags) = branches.isEmpty match {
+      case true => 
+        val v = Variable(FreshIdentifier("<uninterpreted>"), ft.to, Set.empty)
+        (v, Set[Flag](Uninterpreted))
+      case false =>
+        val cases = branches.init.foldRight(branches.last._2) { case ((tpe, thn), els) =>
+          IfExpr(lam.isInstOf(tpe), thn, els)
+        }
+        (cases, Set.empty[Flag])
     }
 
-    new FunDef(id, Seq.empty, lam.toVal +: newArgs, ft.to, cases, Set.empty)
+    new FunDef(id, Seq.empty, lam.toVal +: newArgs, ft.to, body, flags)
   }
 
 }

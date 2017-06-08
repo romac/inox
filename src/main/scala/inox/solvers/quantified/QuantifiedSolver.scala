@@ -13,13 +13,15 @@ trait QuantifiedSolver extends Solver { self =>
 
   def newSolver(p: Program { val trees: program.trees.type }): UnderlyingSolver { val program: p.type }
 
-  def getFunctionMeaning(fd: FunDef): Forall = {
+  def getFunctionMeaning(fd: FunDef): Option[Forall] = {
+    if (fd.flags.contains(Uninterpreted)) return None
+
     val body = Equals(
       FunctionInvocation(fd.id, Seq.empty, fd.params.map(_.toVariable)),
       fd.fullBody
     )
 
-    Forall(fd.params, body)
+    Some(Forall(fd.params, body))
   }
 
 }

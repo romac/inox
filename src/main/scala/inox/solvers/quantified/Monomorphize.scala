@@ -25,9 +25,6 @@ trait Monomorphize { self =>
       val ctx = sourceProgram.ctx
     }
 
-    println("\nprogram:\n\n" + program)
-    println("\nexpr: " + monoExpr)
-
     (program, monoExpr)
   }
 
@@ -61,8 +58,6 @@ trait Monomorphize { self =>
     val newSyms = NoSymbols
       .withADTs(syms.adts.values.toSeq ++ adts.toSeq)
       .withFunctions(applied.toSeq)
-
-    println(newSyms)
 
     (newSyms, newEntry.fullBody)
   }
@@ -151,3 +146,4 @@ object Monomorphize {
     val sourceProgram: p.type = p
   }
 }
+
