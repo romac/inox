@@ -1,0 +1,16 @@
+(declare-datatypes () ((Nat (Zero) (Succ (pred Nat)))))
+
+(define-fun
+  succ
+  ((m Nat)) (=> Nat Nat)
+  (lambda ((n Nat)) (Succ m)))
+
+(define-fun
+  succ-succ
+  () (=> Nat Nat)
+  (lambda ((n Nat)) (Succ (Succ n))))
+
+(assert
+  (forall ((n Nat)) (= (@ succ-succ Zero) (@ (succ n) Zero))))
+
+(check-sat)

@@ -32,7 +32,7 @@ trait Monomorphize { self =>
     implicit val syms = input._1
 
     val (expr, adts) = instantiateGenericAssertions(input._2)
-    val entry = entryPoint(expr)
+    val entry = entryPoint(expr)(syms.withADTs(adts.toSeq))
 
     val callGraph = new TypedCallGraph {
       val trees: sourceProgram.trees.type = sourceProgram.trees
@@ -134,8 +134,9 @@ trait Monomorphize { self =>
 
   private val entryId = FreshIdentifier("entry")
 
-  private def entryPoint(body: Expr)(implicit syms: Symbols): FunDef =
-    new FunDef(entryId, Seq.empty, Seq.empty, body.getType, body, Set.empty)
+  private def entryPoint(body: Expr)(syms: Symbols): FunDef = {
+    new FunDef(entryId, Seq.empty, Seq.empty, body.getType(syms), body, Set.empty)
+  }
 
 }
 

@@ -53,8 +53,7 @@ trait NativeZ3Quantified extends QuantifiedSolver { self =>
 
     import finalProgram._
 
-    println(finalProgram)
-    println(finalExpr)
+    println(finalProgram + "\n\n" + finalExpr + "\n")
 
     val solver = newSolver(finalProgram)
     underlying = solver.asInstanceOf[Z3Quantified { val program: self.program.type }] // @romac - FIXME

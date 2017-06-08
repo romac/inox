@@ -1,0 +1,28 @@
+(declare-datatypes (a)
+  ((list (nil) (cons (head a) (tail (list a))))))
+
+(define-fun-rec
+  (par (a b)
+    (map2
+       ((f (=> a b)) (xs (list a))) (list b)
+       (match xs
+         (case nil (as nil (list b)))
+         (case (cons y ys) (cons (@ f y) (map2 f ys)))))))
+
+(define-fun
+  is-zero
+  () (=> Int Bool)
+  (lambda ((n Int)) (= n 0)))
+
+(define-fun
+  succ
+  () (=> Int Int)
+  (lambda ((n Int)) (+ n 1)))
+
+(assert-not
+  (forall ((xs (list Int)))
+    (= (map2 (lambda ((x Int)) (@ is-zero (@ succ x))) xs)
+      (map2 is-zero (map2 succ xs)))))
+
+(check-sat)
+

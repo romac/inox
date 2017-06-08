@@ -1,0 +1,6 @@
+(declare-datatypes () ((Nat (Zero) (Succ (pred Nat)))))
+
+(assert
+  (forall ((n Nat)) (= (@ (lambda ((n Nat)) (Succ (Succ n))) n) (@ (lambda ((n Nat)) (Succ n)) n))))
+
+(check-sat)

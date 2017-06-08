@@ -1,0 +1,21 @@
+(declare-datatypes (A)
+  ((List
+    (Nil)
+    (Cons (head A) (tail (List A))))))
+
+(define-fun-rec
+  (par (A)
+    (size
+      ((l (List A))) Int
+      (match l
+        (case Nil 0)
+        (case (Cons x xs) (+ 1 (size xs)))))))
+
+(assert-not (= (size (Cons 0 Nil)) 1))
+
+(assert-not
+  (par (A)
+    (forall ((l (List A))) (>= (size l) 0))))
+
+(check-sat)
+

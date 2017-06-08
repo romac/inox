@@ -24,16 +24,17 @@ trait LambdaEncoder { self =>
   private val sortCons       = new IncrementalMap[ADTSort, Set[ADTConstructor]]()
 
   def transform(expr: Expr): (Program { val trees: sourceProgram.trees.type }, Expr) = {
-    val simpleExpr = simplifyFormula(expr)
     val fns = symbols.functions.values.toList
 
-    val allLambdas = (simpleExpr :: fns.map(_.fullBody)) flatMap { expr =>
+    val allLambdas = (expr :: fns.map(_.fullBody)) flatMap { expr =>
       exprOps.collect {
         case lam: Lambda => Set(lam)
         case _ => Set.empty[Lambda]
       } (expr)
     }
 
+    // Instantiate every lambda in the program before actually processing the program
+    // so that all the sorts and constructors are defined when we will actually need them
     allLambdas foreach instantiateLambda
 
     val functions = fns map { fd =>
@@ -43,7 +44,7 @@ trait LambdaEncoder { self =>
       fd.copy(params = params, returnType = returnType, fullBody = body)
     }
 
-    val newExpr = encode(simpleExpr)
+    val newExpr = encode(expr)
 
     val qLambdaDefs = qLambdas.values.toSeq
 
@@ -80,7 +81,6 @@ trait LambdaEncoder { self =>
         Some(instantiateLambda(lam))
 
       case Forall(args, body) =>
-        println(expr)
         val newArgs = args.zip(args.map(_.tpe)) map {
           case (arg, ft: FunctionType) =>
             val sortTpe = mkLambdaSort(ft).typed.toType
@@ -90,7 +90,6 @@ trait LambdaEncoder { self =>
             arg
         }
 
-        println(Forall(newArgs, rewriteLambdaTypes(body)))
         Some(Forall(newArgs, rewriteLambdaTypes(body)))
 
       case _ => None
@@ -126,7 +125,7 @@ trait LambdaEncoder { self =>
     tp.isInstanceOf[FunctionType]
 
   def funToSort(tp: Type): Type = tp match {
-    case ft: FunctionType => lambdaSorts(ft).typed.toType
+    case ft: FunctionType => mkLambdaSort(ft).typed.toType
     case _ => tp
   }
 
@@ -166,7 +165,7 @@ trait LambdaEncoder { self =>
     val ft @ FunctionType(froms, to) = bestRealType(lam.getType)
     val sort = mkLambdaSort(ft)
     val frees = freeVars(lam)
-    val fields = frees.map(_.toVal)
+    val fields = frees.map(_.toVal).map(v => v.copy(tpe = funToSort(v.tpe)))
     val id = FreshIdentifier("LambdaCons", alwaysShowUniqueID = true)
 
     lambdaSorts += ft -> sort.copy(cons = sort.cons :+ id)
@@ -187,8 +186,8 @@ trait LambdaEncoder { self =>
     ADT(cons.typed.toType, freeVars(lam))
   }
 
-  private def simplifyBody(lam: Lambda): Expr = {
-    simplifyHOFunctions(simplifyExpr(lam.body))
+  private def simplify(expr: Expr): Expr = {
+    simplifyHOFunctions(simplifyExpr(expr))
   }
 
   private def normalizeArgs(lam: Lambda, newArgs: Seq[ValDef]): Lambda = {
@@ -226,7 +225,7 @@ trait LambdaEncoder { self =>
       }
 
       val lambda = normalizeArgs(lambdaCons.fromB(cons), newArgs)
-      val body = simplifyBody(lambda)
+      val body = simplify(lambda.body)
       val args = exprOps.variablesOf(body).toSeq.map(_.toVal)
       val thenBody = lets.foldRight(body) { (f, e) => f(e) }
 
