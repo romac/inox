@@ -181,7 +181,13 @@ trait LambdaEncoder { self =>
   private def mkQLambda(ft: FunctionType): FunDef = qLambdas.cached(ft) {
     val id = newQLambdaId(ft)
     val sort = mkLambdaSort(ft)
-    val conss = sortCons.getOrElse(sort, Set.empty).toSeq
+    val conss = sortCons.getOrElse(sort, Set.empty).toList
+
+    if (conss.isEmpty) {
+      // @romac - FIXME: Throw proper exception
+      sys.error(s"No constructors for type $ft and sort $sort")
+    }
+
     val lam = Variable.fresh("lam", sort.typed.toType)
 
     val newVars = ft.from map { tpe =>
@@ -204,7 +210,8 @@ trait LambdaEncoder { self =>
       tpe -> thenBody
     }
 
-    val cases = branches.init.foldRight(branches.last._2) {
+    val last = branches.last._2
+    val cases = branches.init.foldRight(last) {
       case ((tpe, thenBody), elseBody) =>
         IfExpr(lam.isInstOf(tpe), thenBody, elseBody)
     }

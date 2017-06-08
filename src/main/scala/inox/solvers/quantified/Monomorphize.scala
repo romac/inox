@@ -16,13 +16,19 @@ trait Monomorphize { self =>
   import sourceProgram.symbols._
 
   def transform(expr: Expr): (Program { val trees: sourceProgram.trees.type }, Expr) = {
+    val (monoSyms, monoExpr) = fixpoint(sourceProgram.symbols, expr)
+
     val program = new Program {
       val trees: sourceProgram.trees.type = sourceProgram.trees
-      val symbols = sourceProgram.symbols
+      val symbols = monoSyms
       val ctx = sourceProgram.ctx
     }
 
-    (program, expr)
+    (program, monoExpr)
+  }
+
+  private def fixpoint(syms: Symbols, expr: Expr): (Symbols, Expr) = {
+    (syms, expr)
   }
 
 }

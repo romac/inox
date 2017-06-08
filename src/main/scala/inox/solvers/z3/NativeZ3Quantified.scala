@@ -45,22 +45,22 @@ trait NativeZ3Quantified extends QuantifiedSolver { self =>
   }
 
   def assertCnstr(expr: Expr): Unit = {
-    val lambdaEncoder = LambdaEncoder(program)
-    val (program1, expr1) = lambdaEncoder.transform(expr)
+    val monomorphize = Monomorphize(program)
+    val (monoProgram, monoExpr) = monomorphize.transform(expr)
 
-    val monomorphize = Monomorphize(program1)
-    val (program2, expr2) = monomorphize.transform(expr1)
+    val lambdaEncoder = LambdaEncoder(monoProgram)
+    val (finalProgram, finalExpr) = lambdaEncoder.transform(monoExpr)
 
-    val solver = newSolver(program2)
-    underlying = solver.asInstanceOf[Z3Quantified { val program: lambdaEncoder.sourceProgram.type }] // @romac - FIXME
+    val solver = newSolver(finalProgram)
+    underlying = solver.asInstanceOf[Z3Quantified { val program: self.program.type }] // @romac - FIXME
 
-    val functions = program2.symbols.functions.values.toSeq
+    val functions = finalProgram.symbols.functions.values.toSeq
     functions
       .map(getFunctionMeaning(_))
       .map(toUnderlying(_))
       .foreach(solver.assertCnstr(_))
 
-    solver.assertCnstr(toUnderlying(expr2))
+    solver.assertCnstr(toUnderlying(finalExpr))
   }
 
   def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
