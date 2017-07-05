@@ -17,7 +17,10 @@ trait Monomorphize { self =>
   import sourceProgram.symbols._
 
   def transform(expr: Expr): (Program { val trees: sourceProgram.trees.type }, Expr) = {
-    val (monoSyms, monoExpr) = fixpoint(monomorphizeProgram)((sourceProgram.symbols, expr))
+    val (syms, monoExpr) = fixpoint(monomorphizeProgram)((sourceProgram.symbols, expr))
+
+    val monoFunctions = syms.functions.values.toSeq.filter(_.tparams.isEmpty)
+    val monoSyms = NoSymbols.withFunctions(monoFunctions).withADTs(syms.adts.values.toSeq)
 
     val program = new Program {
       val trees: sourceProgram.trees.type = sourceProgram.trees
@@ -40,16 +43,14 @@ trait Monomorphize { self =>
     }
 
     val calls = callGraph.transitiveCallees(entry)
-
     val paramCalls = calls.filter(_._2.nonEmpty)
-
     if (paramCalls.isEmpty) return (syms, expr)
 
     val (beforePoly, beforeMono) = paramCalls partition {
       case (fd, tps) => tps exists isParametricType
     }
 
-    val monoMap = beforeMono.map(_monomorphizeFunction).flatten.toMap
+    val monoMap = beforeMono.map((monomorphizeFunction _).tupled).flatten.toMap
     val callsLeft = calls.map(_._1) -- monoMap.keys.map(_.fd).toSet
 
     val applied = (monoMap.values.toSet ++ callsLeft) map monomorphizeInvocations(monoMap)
@@ -62,32 +63,20 @@ trait Monomorphize { self =>
     (newSyms, newEntry.fullBody)
   }
 
-  private def instantiateGenericAssertions(expr: Expr): (Expr, Set[ADTDefinition]) = {
-    var adts = new IncrementalMap[TypeParameter, ADTConstructor]
+  private def instantiateGenericAssertions(expr: Expr)(implicit syms: Symbols): (Expr, Set[ADTDefinition]) = {
+    val adts = new IncrementalMap[TypeParameter, ADTConstructor]
 
-    def go(expr: Expr): Option[Expr] = expr match {
-      case Forall(args, body) =>
-        args.zip(args.map(_.tpe)) foreach { case (arg, tp) =>
-          typeParamsOf(tp) foreach { param =>
-            adts.cached(param) {
-              val consId = FreshIdentifier(param.id.name ++ "#")
-              new ADTConstructor(consId, Seq.empty, None, Seq.empty, Set.empty)
-            }
-          }
-        }
+    val substs = syms.typeParamsOf(expr) map { param =>
+      val adt = adts.cached(param) {
+        val consId = FreshIdentifier(param.id.name ++ "#")
+        new ADTConstructor(consId, Seq.empty, None, Seq.empty, Set.empty)
+      }
 
-        val substs = adts.iterator.map(s => (s._1, s._2.typed.toType)).toMap
-        val newArgs = args map { arg =>
-          arg.copy(tpe = typeOps.replace(substs.asInstanceOf[Map[Type, Type]], arg.tpe))
-        }
-
-        Some(Forall(newArgs, instantiateType(body, substs)))
-
-      case _ =>
-        None
+      param -> adt.typed.toType
     }
 
-    val res = exprOps.postMap(go)(expr)
+    val res = syms.instantiateType(expr, substs.toMap)
+
     (res, adts.values.toSet)
   }
 
@@ -113,11 +102,8 @@ trait Monomorphize { self =>
     fd.copy(fullBody = exprOps.postMap(go)(fd.fullBody))
   }
 
-  private val _monomorphizeFunction = (monomorphizeFunction _).tupled
-
   private def monomorphizeFunction(fd: FunDef, tps: Seq[Type]): Option[(TypedFunDef, FunDef)] = {
     val isPoly = tps exists isParametricType
-
     if (isPoly) return None
 
     val monoId = FreshIdentifier(s"${fd.id}_mono_${tps.map(_.compactString) mkString "-"}")

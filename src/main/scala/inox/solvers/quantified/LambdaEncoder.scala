@@ -73,13 +73,13 @@ trait LambdaEncoder { self =>
 
     check(program, newExpr)
 
-    println("=" * 80)
-    println("LambdaEncoder")
-    println("=" * 80)
-    println(program)
-    println()
-    println(newExpr)
-    println()
+    // println("=" * 80)
+    // println("LambdaEncoder")
+    // println("=" * 80)
+    // println(program)
+    // println()
+    // println(newExpr)
+    // println()
 
     (program, newExpr)
   }

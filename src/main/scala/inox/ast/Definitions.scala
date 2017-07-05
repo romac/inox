@@ -505,7 +505,7 @@ trait Definitions { self: Trees =>
     }
 
     /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with its own type parameters */
-    def typed(implicit s: Symbols): TypedFunDef = typed(tparams.map(_.tp))
+    def typed(implicit s: Symbols): TypedFunDef = typed(typeArgs)
 
     /* Auxiliary methods */
 
