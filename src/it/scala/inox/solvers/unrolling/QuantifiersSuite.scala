@@ -16,6 +16,7 @@ class QuantifiersSuite extends TestSuite {
     ("smt-z3",       false, false, false),
     ("smt-z3-opt",   false, false, false),
     ("smt-cvc4",     false, false, false),
+    ("smt-cvc4-q",   false, false, false),
     ("nativez3",     true,  true,  false),
     ("nativez3",     false, false, true ),
     ("princess",     true,  true,  false),

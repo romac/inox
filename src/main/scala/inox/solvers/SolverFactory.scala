@@ -69,6 +69,7 @@ object SolverFactory {
     "nativez3-q"   -> "Native Z3 without quantifier instantiation",
     "unrollz3"     -> "Native Z3 with inox-templates for unrolling",
     "smt-cvc4"     -> "CVC4 through SMT-LIB",
+    "smt-cvc4-q"   -> "CVC4 through SMT-LIB without quantifier instantiation",
     "smt-z3"       -> "Z3 through SMT-LIB",
     "smt-z3-opt"   -> "Z3 optimizer through SMT-LIB",
     "princess"     -> "Princess with inox unrolling"
@@ -80,6 +81,7 @@ object SolverFactory {
     "nativez3-q"   -> (() => hasNativeZ3, Seq("nativez3", "smt-z3"),               "Z3 native interface"),
     "unrollz3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4",   "princess"), "Z3 native interface"),
     "smt-cvc4"     -> (() => hasCVC4,     Seq("nativez3", "smt-z3",   "princess"), "'cvc4' binary"),
+    "smt-cvc4-q"   -> (() => hasCVC4,     Seq("nativez3-q"),                       "'cvc4' binary"),
     "smt-z3"       -> (() => hasZ3,       Seq("nativez3", "smt-cvc4", "princess"), "'z3' binary"),
     "smt-z3-opt"   -> (() => hasZ3,       Seq("nativez3-opt"),                     "'z3' binary"),
     "princess"     -> (() => true,        Seq(),                                   "Princess solver")
@@ -153,25 +155,6 @@ object SolverFactory {
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
           lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
-        }
-      })
-
-      case "nativez3-q" => create(p)(finalName, {
-        val chooseEnc = ChooseEncoder(p)(enc)
-        val fullEnc = enc andThen chooseEnc
-        val theoryEnc = theories.Z3(fullEnc.targetProgram)
-        val progEnc = fullEnc andThen theoryEnc
-
-        () => new {
-          val program: p.type = p
-          val options = opts
-          val encoder: enc.type = enc
-        } with z3.NativeZ3Quantified with TimeoutSolver {
-          val semantics = sem
-          // val chooses: chooseEnc.type = chooseEnc
-          // override lazy val theories: theoryEnc.type = theoryEnc
-          // override protected lazy val fullEncoder = fullEnc
-          // override protected lazy val programEncoder = progEnc
         }
       })
 
@@ -286,6 +269,56 @@ object SolverFactory {
           } with smtlib.CVC4Solver {
             val semantics: program.Semantics = targetSem
           }
+        }
+      })
+
+      case "nativez3-q" => create(p)(finalName, {
+        val chooseEnc = ChooseEncoder(p)(enc)
+        val fullEnc = enc andThen chooseEnc
+        val theoryEnc = theories.Z3(fullEnc.targetProgram)
+        val progEnc = fullEnc andThen theoryEnc
+        val targetSem = progEnc.targetProgram.getSemantics
+
+        () => new {
+          val program: p.type = p
+          val options = opts
+          val encoder: enc.type = enc
+        } with z3.NativeZ3QuantifiedSolver with TimeoutSolver {
+          val semantics = sem
+          // val chooses: chooseEnc.type = chooseEnc
+          // override lazy val theories: theoryEnc.type = theoryEnc
+          // override protected lazy val fullEncoder = fullEnc
+          // override protected lazy val programEncoder = progEnc
+        }
+      })
+
+      case "smt-cvc4-q" => create(p)(finalName, {
+        val ev = sem.getEvaluator
+        val chooseEnc = ChooseEncoder(p)(enc)
+        val fullEnc = enc andThen chooseEnc
+        val theoryEnc = theories.CVC4(fullEnc)(ev)
+        val progEnc = fullEnc andThen theoryEnc
+        val targetSem = progEnc.targetProgram.getSemantics
+
+        () => new {
+          val program: p.type = p
+          val options = opts
+          val encoder: enc.type = enc
+        } with smtlib.CVC4QuantifiedSolver with TimeoutSolver /*with tip.TipDebugger*/ {
+          val semantics = sem
+          // val chooses: chooseEnc.type = chooseEnc
+          // val theories: theoryEnc.type = theoryEnc
+          // val targetSemantics = targetSem
+          // override protected lazy val evaluator = ev
+          // override protected lazy val fullEncoder = fullEnc
+          // override protected lazy val programEncoder = progEnc
+
+          // protected object underlying extends {
+          //   val program: progEnc.targetProgram.type = progEnc.targetProgram
+          //   val options = opts
+          // } with smtlib.CVC4Solver {
+          //   val semantics: program.Semantics = targetSem
+          // }
         }
       })
 

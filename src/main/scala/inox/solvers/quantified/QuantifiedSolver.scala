@@ -4,14 +4,9 @@ package inox
 package solvers
 package quantified
 
-trait QuantifiedSolver extends Solver { self =>
+trait QuantifiedSolver { self: Solver =>
 
   import program.trees._
-  import SolverResponses._
-
-  type UnderlyingSolver <: AbstractSolver
-
-  def newSolver(p: Program { val trees: program.trees.type }): UnderlyingSolver { val program: p.type }
 
   def getFunctionMeaning(fd: FunDef)(implicit syms: Symbols): Option[Forall] = {
     if (fd.flags.contains(Uninterpreted)) return None

@@ -14,7 +14,7 @@ class SemanticsSuite extends FunSuite {
   val solverNames: Seq[String] = {
     (if (SolverFactory.hasNativeZ3) Seq("nativez3", "unrollz3", "nativez3-q") else Nil) ++
     (if (SolverFactory.hasZ3) Seq("smt-z3") else Nil) ++
-    (if (SolverFactory.hasCVC4) Seq("smt-cvc4") else Nil) ++
+    (if (SolverFactory.hasCVC4) Seq("smt-cvc4", "smt-cvc4-q") else Nil) ++
     Seq("princess")
   }
 
