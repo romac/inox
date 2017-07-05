@@ -1,0 +1,15 @@
+
+(define-fun
+  succ
+  () (=> Int Int)
+  (lambda ((n Int)) (+ n 1)))
+
+(define-fun
+  twice
+  ((f (=> Int Int)) (n Int)) (Int)
+  (@ f (@ f n)))
+
+(assert
+  (forall ((n Int)) (= (@ succ n) (twice succ n))))
+
+(check-sat)

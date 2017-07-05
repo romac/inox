@@ -73,7 +73,7 @@ trait CallGraph {
   }
 
   def transitivelyCalls(from: FunDef, to: FunDef): Boolean = {
-    graph.transitiveSucc(from) contains to
+    transitiveCallees(from) contains to
   }
 
   lazy val stronglyConnectedComponents = graph.stronglyConnectedComponents.N

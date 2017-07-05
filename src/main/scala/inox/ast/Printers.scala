@@ -56,6 +56,10 @@ trait Printers { self: Trees =>
     def asString(implicit opts: PrinterOptions): String
   }
 
+  trait PrintableCompact { self: Printable =>
+    def compactString(implicit opts: PrinterOptions): String = asString
+  }
+
   def asString(obj: Any)(implicit opts: PrinterOptions): String = obj match {
     case tree: Tree => prettyPrint(tree, opts)
     case id: Identifier => id.asString

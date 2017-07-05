@@ -23,9 +23,11 @@ trait Expressions { self: Trees =>
     if (real zip formal forall { case (real, formal) => s.isSubtypeOf(real, formal)} ) {
       result.unveilUntyped
     } else {
-      //println(s"Failed to type as $result")
-      //println(real map { r => s"$r: ${r.getType}"} mkString ", " )
-      //println(formal map { r => s"$r: ${r.getType}" } mkString ", " )
+      println(s"Failed to type as $result")
+      real zip formal foreach { case (r, f) =>
+        if (!s.isSubtypeOf(r, f))
+          println(s"  ${r} is not a subtype of ${f}. lsb = ${s.leastUpperBound(r, f)}")
+      }
       Untyped
     }
   }

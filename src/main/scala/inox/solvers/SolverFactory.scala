@@ -61,10 +61,12 @@ object SolverFactory {
   import evaluators._
   import combinators._
   import unrolling._
+  import quantified._
 
   val solverNames = Map(
     "nativez3"     -> "Native Z3 with z3-templates for unrolling",
     "nativez3-opt" -> "Native Z3 optimizer with z3-templates for unrolling",
+    "nativez3-q"   -> "Native Z3 without quantifier instantiation",
     "unrollz3"     -> "Native Z3 with inox-templates for unrolling",
     "smt-cvc4"     -> "CVC4 through SMT-LIB",
     "smt-z3"       -> "Z3 through SMT-LIB",
@@ -75,6 +77,7 @@ object SolverFactory {
   private val fallbacks = Map(
     "nativez3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4",   "princess"), "Z3 native interface"),
     "nativez3-opt" -> (() => hasNativeZ3, Seq("smt-z3-opt"),                       "Z3 native interface"),
+    "nativez3-q"   -> (() => hasNativeZ3, Seq("nativez3", "smt-z3"),               "Z3 native interface"),
     "unrollz3"     -> (() => hasNativeZ3, Seq("smt-z3", "smt-cvc4",   "princess"), "Z3 native interface"),
     "smt-cvc4"     -> (() => hasCVC4,     Seq("nativez3", "smt-z3",   "princess"), "'cvc4' binary"),
     "smt-z3"       -> (() => hasZ3,       Seq("nativez3", "smt-cvc4", "princess"), "'z3' binary"),
@@ -150,6 +153,25 @@ object SolverFactory {
           override protected lazy val fullEncoder = fullEnc
           override protected lazy val programEncoder = progEnc
           lazy val targetSemantics: targetProgram.Semantics = targetProgram.getSemantics
+        }
+      })
+
+      case "nativez3-q" => create(p)(finalName, {
+        val chooseEnc = ChooseEncoder(p)(enc)
+        val fullEnc = enc andThen chooseEnc
+        val theoryEnc = theories.Z3(fullEnc.targetProgram)
+        val progEnc = fullEnc andThen theoryEnc
+
+        () => new {
+          val program: p.type = p
+          val options = opts
+          val encoder: enc.type = enc
+        } with z3.NativeZ3Quantified with TimeoutSolver {
+          val semantics = sem
+          // val chooses: chooseEnc.type = chooseEnc
+          // override lazy val theories: theoryEnc.type = theoryEnc
+          // override protected lazy val fullEncoder = fullEnc
+          // override protected lazy val programEncoder = progEnc
         }
       })
 

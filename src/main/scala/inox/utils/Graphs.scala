@@ -56,6 +56,13 @@ object Graphs {
     def -(e: Edge) = copy(E = E-e)
   }
 
+  object DiGraph {
+    def fromEdges[Node, Edge <: EdgeLike[Node]](edges: Iterable[Edge]): DiGraph[Node, Edge] =
+    edges.foldLeft(DiGraph.empty[Node, Edge])(_ + _)
+
+    def empty[Node, Edge <: EdgeLike[Node]]: DiGraph[Node, Edge] =
+      DiGraph[Node, Edge]()
+  }
 
   trait DiGraphOps[Node, Edge <: EdgeLike[Node], G <: DiGraphLike[Node, Edge, G]] {
     this: G =>
@@ -188,12 +195,39 @@ object Graphs {
       compose(follow(from).toList.map(visit))
     }
 
+    def foldL[T, Label](from: Node)(
+      follow: Node => Traversable[(Node, Label)],
+      map: ((Node, Label)) => T,
+      compose: List[T] => T): T = {
+
+      var visited = Set[(Node, Label)]()
+
+      def visit(n: (Node, Label)): T = {
+        visited += n
+
+        val toFollow = follow(n._1).filterNot(visited)
+        visited ++= toFollow
+
+        compose(map(n) :: toFollow.toList.map(visit))
+      }
+
+      compose(follow(from).toList.map(visit))
+    }
+
     def succ(from: Node): Set[Node] = {
       outEdges(from).map(_._2)
     }
 
+    def succL[Label](from: Node)(implicit ev: Edge =:= LabeledEdge[Label, Node]): Set[(Node, Label)] = {
+      outEdges(from).map(e => (e._2, e.l))
+    }
+
     def pred(from: Node): Set[Node] = {
       inEdges(from).map(_._1)
+    }
+
+    def predL[Label](from: Node)(implicit ev: Edge =:= LabeledEdge[Label, Node]): Set[(Node, Label)] = {
+      inEdges(from).map(e => (e._1, e.l))
     }
 
     def transitiveSucc(from: Node): Set[Node] = {
@@ -204,9 +238,25 @@ object Graphs {
       )
     }
 
+    def transitiveSuccL[Label](from: Node)(implicit ev: Edge =:= LabeledEdge[Label, Node]): Set[(Node, Label)] = {
+      foldL[Set[(Node, Label)], Label](from)(
+        succL(_),
+        Set(_),
+        _.toSet.flatten
+      )
+    }
+
     def transitivePred(from: Node): Set[Node] = {
       fold[Set[Node]](from)(
         pred,
+        Set(_),
+        _.toSet.flatten
+      )
+    }
+
+    def transitivePredL[Label](from: Node)(implicit ev: Edge =:= LabeledEdge[Label, Node]): Set[(Node, Label)] = {
+      foldL[Set[(Node, Label)], Label](from)(
+        predL(_),
         Set(_),
         _.toSet.flatten
       )

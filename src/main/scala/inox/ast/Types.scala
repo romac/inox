@@ -25,7 +25,7 @@ trait Types { self: Trees =>
     protected def computeType(implicit s: Symbols): Type
   }
 
-  abstract class Type extends Tree with Typed {
+  abstract class Type extends Tree with Typed with PrintableCompact {
     def getType(implicit s: Symbols): Type = this
 
     // Checks whether the subtypes of this type contain Untyped,
@@ -92,7 +92,10 @@ trait Types { self: Trees =>
   case class SetType(base: Type) extends Type
   case class BagType(base: Type) extends Type
   case class MapType(from: Type, to: Type) extends Type
-  case class FunctionType(from: Seq[Type], to: Type) extends Type
+  case class FunctionType(from: Seq[Type], to: Type) extends Type {
+    override def compactString(implicit opts: PrinterOptions): String =
+      from.map(_.compactString).mkString + "->" + to.compactString
+  }
 
   case class ADTType(id: Identifier, tps: Seq[Type]) extends Type {
     def lookupADT(implicit s: Symbols): Option[TypedADTDefinition] = s.lookupADT(id, tps)

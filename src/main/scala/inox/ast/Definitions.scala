@@ -256,6 +256,9 @@ trait Definitions { self: Trees =>
   /** Denotes that this adt has an overriden equality relation given by ''id'' */
   case class HasADTEquality(id: Identifier) extends Flag("equality", Seq(id))
 
+  /** Denotes that this function definition should be left uninterpreted */
+  case object Uninterpreted extends Flag("uninterpreted", Seq.empty)
+
   /** Compiler annotations given in the source code as @annot.
     * 
     * @see [[Flag]] for some notes on the actual type of [[args]]. */

@@ -54,6 +54,7 @@ class IncrementalMap[A, B] private(dflt: Option[B])
   def isDefinedAt(k: A) = stack.head.isDefinedAt(k)
   def getOrElse[B1 >: B](k: A, e: => B1) = stack.head.getOrElse(k, e)
   def values = stack.head.values
+  def keys = stack.head.keys
 
   def cached(k: A)(b: => B): B = getOrElse(k, {
     val ev = b
