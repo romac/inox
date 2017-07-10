@@ -4,16 +4,17 @@ package inox
 package solvers
 package quantified
 
+import ast._
 import utils._
 
-trait LambdaEncoder { self =>
+trait LambdaEncoder extends LiveSymbolTransformer   { self =>
 
-  val sourceProgram: Program
+  val ctx: Context
 
-  import sourceProgram._
-  import sourceProgram.trees._
-  import sourceProgram.trees.dsl._
-  import sourceProgram.symbols._
+  val t: self.s.type = self.s
+
+  import s._
+  import s.dsl._
 
   private val lambdas        = new IncrementalSet[Lambda]
   private val lambdaFreeVars = new IncrementalMap[Lambda, Seq[Variable]]()
@@ -23,8 +24,10 @@ trait LambdaEncoder { self =>
   private val lambdaInsts    = new IncrementalMap[Lambda, Expr]()
   private val sortCons       = new IncrementalMap[ADTSort, Set[ADTConstructor]]()
 
-  def transform(expr: Expr): (Program { val trees: sourceProgram.trees.type }, Expr) = {
-    val fns = symbols.functions.values.toList
+  def transform(syms: Symbols, expr: Expr): (Symbols, Expr) = {
+    implicit val iSyms: Symbols = syms
+
+    val fns = syms.functions.values.toList
 
     val allLambdas = (expr :: fns.map(_.fullBody)) flatMap { expr =>
       exprOps.collect {
@@ -38,7 +41,7 @@ trait LambdaEncoder { self =>
     allLambdas foreach instantiateLambda
 
     // Rewrite function types in ADTs by their defunctionalized equivalent
-    val adts = symbols.adts.values.toList map {
+    val adts = syms.adts.values.toList map {
       case cons: ADTConstructor =>
         val fields = cons.fields.map { case vd =>
           rewriteLambdaTypes(vd.toVariable).asInstanceOf[Variable].toVal
@@ -49,7 +52,7 @@ trait LambdaEncoder { self =>
         sort
     }
 
-    val syms = NoSymbols.withFunctions(fns).withADTs(adts)
+    val newSyms = NoSymbols.withFunctions(fns).withADTs(adts)
 
     def encodeFunction(fd: FunDef)(syms: Symbols): FunDef = {
       val body = encode(fd.fullBody)(syms)
@@ -58,20 +61,16 @@ trait LambdaEncoder { self =>
       fd.copy(params = params, returnType = returnType, fullBody = body)
     }
 
-    val functions = fns.map(fn => encodeFunction(fn)(syms))
-    val newExpr = encode(expr)(syms)
-    val qLambdaDefs = qLambdas.values.toSeq.map(fn => encodeFunction(fn)(syms))
+    val functions = fns.map(fn => encodeFunction(fn)(newSyms))
+    val newExpr = encode(expr)(newSyms)
+    val qLambdaDefs = qLambdas.values.toSeq.map(fn => encodeFunction(fn)(newSyms))
 
     val newFunctions = functions ++ qLambdaDefs
     val newADTs = adts ++ lambdaSorts.values.toSeq ++ sortCons.values.flatten.toSeq
 
-    val program = new Program {
-      val trees: sourceProgram.trees.type = sourceProgram.trees
-      val symbols = NoSymbols.withFunctions(newFunctions).withADTs(newADTs)
-      val ctx = sourceProgram.ctx
-    }
+    val finalSyms = NoSymbols.withFunctions(newFunctions).withADTs(newADTs)
 
-    check(program, newExpr)
+    check(newExpr)(finalSyms)
 
     // println("=" * 80)
     // println("LambdaEncoder")
@@ -81,10 +80,10 @@ trait LambdaEncoder { self =>
     // println(newExpr)
     // println()
 
-    (program, newExpr)
+    (finalSyms, newExpr)
   }
 
-  def check(program: Program { val trees: sourceProgram.trees.type }, expr: Expr): Unit = {
+  def check(expr: Expr)(implicit syms: Symbols): Unit = {
     def collectApps(expr: Expr): Set[Application] = {
       exprOps.collect[Application] {
         case app: Application => Set(app)
@@ -107,7 +106,7 @@ trait LambdaEncoder { self =>
       errorExpr(apps.toSeq, expr)
     }
 
-    program.symbols.functions.values.toSeq foreach { fd =>
+    syms.functions.values.toSeq foreach { fd =>
       val apps = collectApps(fd.fullBody)
       if (apps.nonEmpty) {
         errorFun(apps.toSeq, fd)
@@ -143,6 +142,8 @@ trait LambdaEncoder { self =>
   }
 
   def rewriteApplications(expr: Expr)(implicit syms: Symbols): Expr = {
+    import syms._
+
     def go(expr: Expr): Option[Expr] = expr match {
 
       // @romac - FIXME: This should not be needed
@@ -165,7 +166,7 @@ trait LambdaEncoder { self =>
     exprOps.postMap(go)(expr)
   }
 
-  def isFun(tp: Type): Boolean = {
+  def isFun(tp: Type)(implicit syms: Symbols): Boolean = {
     tp.isInstanceOf[FunctionType]
   }
 
@@ -205,18 +206,21 @@ trait LambdaEncoder { self =>
     exprOps.postMap(go)(expr)
   }
 
-  private def freeVars(lam: Lambda): Seq[Variable] = lambdaFreeVars.cached(lam) {
+  private def freeVars(lam: Lambda)(implicit syms: Symbols): Seq[Variable] = lambdaFreeVars.cached(lam) {
     (exprOps.variablesOf(lam.body) -- lam.args.map(_.toVariable)).toSeq
   }
 
-  private def mkLambdaSort(ft: FunctionType): ADTSort = {
+  private def mkLambdaSort(ft: FunctionType)(implicit syms: Symbols): ADTSort = {
+    implicit val printerOpts: PrinterOptions = PrinterOptions.fromSymbols(syms, ctx)
     lambdaSorts.cached(ft) {
       val id = FreshIdentifier("Lambda_" + ft.compactString)
       new ADTSort(id, Seq.empty, Seq.empty, Set.empty)
     }
   }
 
-  private def mkLambdaCons(lam: Lambda): ADTConstructor = lambdaCons.cachedB(lam) {
+  private def mkLambdaCons(lam: Lambda)(implicit syms: Symbols): ADTConstructor = lambdaCons.cachedB(lam) {
+    import syms._
+
     val ft @ FunctionType(froms, to) = bestRealType(lam.getType)
     val sort = mkLambdaSort(ft)
     val frees = freeVars(lam)
@@ -231,82 +235,90 @@ trait LambdaEncoder { self =>
     cons
   }
 
-  private def instantiateLambda(lam: Lambda)(syms: Symbols): Expr = lambdaInsts.cached(lam) {
+  private def instantiateLambda(lam: Lambda)(implicit syms: Symbols): Expr = lambdaInsts.cached(lam) {
+    import syms._
+
     lambdas += lam
 
-    val ft @ FunctionType(_, _) = bestRealType(lam.getType(syms))
+    val ft @ FunctionType(_, _) = bestRealType(lam.getType)
     val cons = mkLambdaCons(lam)
     val sort = mkLambdaSort(ft)
 
     ADT(cons.typed.toType, freeVars(lam))
   }
 
-  private def simplify(expr: Expr): Expr = {
-    simplifyHOFunctions(simplifyExpr(expr))
-  }
-
-  private def normalizeArgs(lam: Lambda, newArgs: Seq[ValDef]): Lambda = {
-    Lambda(newArgs, exprOps.replaceFromSymbols(lam.args.zip(newArgs.map(_.toVariable)).toMap, lam.body))
-  }
-
-  private def newQLambdaId(ft: FunctionType): Identifier = {
-    FreshIdentifier("qLambda_" + ft.compactString)
-  }
-
-  private def mkQLambda(ft: FunctionType): FunDef = qLambdas.cached(ft) {
-    val id = newQLambdaId(ft)
-    val sort = mkLambdaSort(ft)
-    val conss = sortCons.getOrElse(sort, Set.empty).toList
-
-    if (conss.isEmpty) {
-      val consId = FreshIdentifier(sort.id.name + "_Cons")
-      val cons = new ADTConstructor(consId, Seq.empty, Some(sort.id), Seq.empty, Set.empty)
-      sortCons += sort -> Set(cons)
-      lambdaSorts += ft -> sort.copy(cons = sort.cons :+ consId)
+  private def simplify(expr: Expr)(implicit syms: Symbols): Expr = {
+      syms.simplifyHOFunctions(syms.simplifyExpr(expr))
     }
 
-    val lam = Variable.fresh("lam", sort.typed.toType)
+    private def normalizeArgs(lam: Lambda, newArgs: Seq[ValDef])(implicit syms: Symbols): Lambda = {
 
-    val newVars = ft.from map { tpe =>
-      Variable.fresh("arg", tpe, alwaysShowUniqueID = true)
+      Lambda(newArgs, exprOps.replaceFromSymbols(lam.args.zip(newArgs.map(_.toVariable)).toMap, lam.body))
     }
 
-    val newArgs = newVars.map(_.toVal)
+    private def newQLambdaId(ft: FunctionType)(implicit syms: Symbols): Identifier = {
+      implicit val printerOpts: PrinterOptions = PrinterOptions.fromSymbols(syms, ctx)
+      FreshIdentifier("qLambda_" + ft.compactString)
+    }
 
-    val branches = conss.map { cons =>
-      val tpe = cons.typed.toType
-      val lets = cons.fields.map { v =>
-        (body: Expr) => Let(v, lam.asInstOf(tpe).getField(v.id), body)
+    private def mkQLambda(ft: FunctionType)(implicit syms: Symbols): FunDef = qLambdas.cached(ft) {
+      val id = newQLambdaId(ft)
+      val sort = mkLambdaSort(ft)
+      val conss = sortCons.getOrElse(sort, Set.empty).toList
+
+      if (conss.isEmpty) {
+        val consId = FreshIdentifier(sort.id.name + "_Cons")
+        val cons = new ADTConstructor(consId, Seq.empty, Some(sort.id), Seq.empty, Set.empty)
+        sortCons += sort -> Set(cons)
+        lambdaSorts += ft -> sort.copy(cons = sort.cons :+ consId)
       }
 
-      val lambda = normalizeArgs(lambdaCons.fromB(cons), newArgs)
-      val body = simplify(lambda.body)
-      val args = exprOps.variablesOf(body).toSeq.map(_.toVal)
-      val thenBody = lets.foldRight(body) { (f, e) => f(e) }
+      val lam = Variable.fresh("lam", sort.typed.toType)
 
-      tpe -> thenBody
-    }
+      val newVars = ft.from map { tpe =>
+        Variable.fresh("arg", tpe, alwaysShowUniqueID = true)
+      }
 
-    val (body, flags) = branches.isEmpty match {
-      case true =>
-        val v = Variable(FreshIdentifier("<uninterpreted>"), ft.to, Set.empty)
-        (v, Set[Flag](Uninterpreted))
-      case false =>
-        val cases = branches.init.foldRight(branches.last._2) { case ((tpe, thn), els) =>
-          IfExpr(lam.isInstOf(tpe), thn, els)
+      val newArgs = newVars.map(_.toVal)
+
+      val branches = conss.map { cons =>
+        val tpe = cons.typed.toType
+        val lets = cons.fields.map { v =>
+          (body: Expr) => Let(v, lam.asInstOf(tpe).getField(v.id), body)
         }
-        (cases, Set.empty[Flag])
+
+        val lambda = normalizeArgs(lambdaCons.fromB(cons), newArgs)
+        val body = simplify(lambda.body)
+        val args = exprOps.variablesOf(body).toSeq.map(_.toVal)
+        val thenBody = lets.foldRight(body) { (f, e) => f(e) }
+
+        tpe -> thenBody
+      }
+
+      val (body, flags) = branches.isEmpty match {
+        case true =>
+          val v = Variable(FreshIdentifier("<uninterpreted>"), ft.to, Set.empty)
+          (v, Set[Flag](Uninterpreted))
+        case false =>
+          val cases = branches.init.foldRight(branches.last._2) { case ((tpe, thn), els) =>
+            IfExpr(lam.isInstOf(tpe), thn, els)
+          }
+          (cases, Set.empty[Flag])
+      }
+
+      new FunDef(id, Seq.empty, lam.toVal +: newArgs, ft.to, body, flags)
     }
 
-    new FunDef(id, Seq.empty, lam.toVal +: newArgs, ft.to, body, flags)
   }
-
-}
 
 object LambdaEncoder {
-  def apply(p: Program): LambdaEncoder {
-    val sourceProgram: p.type
+
+  def apply(trees: Trees, context: Context): LambdaEncoder {
+    val s: trees.type
+    val ctx: context.type
   } = new LambdaEncoder {
-    val sourceProgram: p.type = p
+    override val s: trees.type = trees
+    override val ctx: context.type = context
   }
+
 }

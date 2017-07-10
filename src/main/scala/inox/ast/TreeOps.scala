@@ -328,3 +328,53 @@ object SymbolTransformer {
     protected def transformADT(adt: s.ADTDefinition): t.ADTDefinition = trans.transform(adt)
   }
 }
+
+/** Live symbol table transformer base type */
+trait LiveSymbolTransformer { self =>
+  val s: Trees
+  val t: Trees
+
+  def transform(syms: s.Symbols, cnstr: s.Expr): (t.Symbols, t.Expr)
+
+  def compose(that: LiveSymbolTransformer { val t: self.s.type }): LiveSymbolTransformer {
+    val s: that.s.type
+    val t: self.t.type
+  } = new {
+    val rhs: that.type = that
+    val lhs: self.type = self
+  } with LiveSymbolTransformerComposition
+
+  def andThen(that: LiveSymbolTransformer {
+    val s: self.t.type
+  }): LiveSymbolTransformer {
+    val s: self.s.type
+    val t: that.t.type
+  } = {
+    // the scala compiler doesn't realize that this relation must hold here
+    that compose this.asInstanceOf[LiveSymbolTransformer {
+      val s: self.s.type
+      val t: that.s.type
+    }]
+  }
+}
+
+/** Enables equality checks between live symbol transformer compositions */
+private[ast] trait LiveSymbolTransformerComposition extends LiveSymbolTransformer {
+  protected val lhs: LiveSymbolTransformer
+  protected val rhs: LiveSymbolTransformer { val t: lhs.s.type }
+
+  val s: rhs.s.type = rhs.s
+  val t: lhs.t.type = lhs.t
+
+  override def transform(syms: s.Symbols, cnstr: s.Expr): (t.Symbols, t.Expr) = {
+    val (s, c) = rhs.transform(syms, cnstr)
+    lhs.transform(s, c)
+  }
+
+  override def equals(that: Any): Boolean = that match {
+    case c: LiveSymbolTransformerComposition => rhs == c.rhs && lhs == c.lhs
+    case _ => false
+  }
+
+  override def hashCode: Int = 31 * rhs.hashCode + lhs.hashCode
+}

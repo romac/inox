@@ -6,7 +6,6 @@ package z3
 
 import _root_.z3.scala._
 
-import ast.ProgramEncoder
 import utils._
 import solvers.{z3 => _, _}
 import quantified._
@@ -34,9 +33,15 @@ trait NativeZ3QuantifiedSolver extends Solver with QuantifiedSolver { self =>
 
   private type Prog = Program { val trees: self.program.trees.type }
 
-  private def newSolver(p: Prog): Z3Quantified { val program: Prog } = {
+  private def newSolver(p: Prog, syms: Symbols): Z3Quantified { val program: Prog } = {
+    val newProgram = new Program {
+      val trees = p.trees
+      val symbols = syms
+      val ctx = p.ctx
+    }
+
     new {
-      val program: p.type = p
+      val program = newProgram
       val options = self.options
     } with Z3Quantified {
       lazy val semantics = program.getSemantics(null)
@@ -44,28 +49,27 @@ trait NativeZ3QuantifiedSolver extends Solver with QuantifiedSolver { self =>
   }
 
   def assertCnstr(expr: Expr): Unit = {
-    val monomorphize = Monomorphize(program)
-    val (monoProgram, monoExpr) = monomorphize.transform(expr)
+    val monomorphize = Monomorphize(program.trees, program.ctx)
+    val lambdaEncoder = LambdaEncoder(program.trees, program.ctx)
+    val transformer = monomorphize andThen lambdaEncoder
 
-    val lambdaEncoder = LambdaEncoder(monoProgram)
-    val (finalProgram, finalExpr) = lambdaEncoder.transform(monoExpr)
+    val (syms, finalExpr) = transformer.transform(program.symbols, expr)
 
-    import finalProgram._
+    println(syms + "\n\n" + finalExpr + "\n")
 
-    println(finalProgram + "\n\n" + finalExpr + "\n")
-
-    val solver = newSolver(finalProgram)
+    val solver = newSolver(program.asInstanceOf[Prog], syms)
 
     // @romac - FIXME
     underlying = solver.asInstanceOf[Z3Quantified { val program: self.program.type }]
 
-    val functions = finalProgram.symbols.functions.values.toSeq
+    val functions = syms.functions.values.toSeq
     functions
-      .flatMap(getFunctionMeaning(_))
+      .flatMap(getFunctionMeaning(_)(syms))
       .map(toUnderlying(_))
       .foreach(solver.assertCnstr(_))
 
-    solver.assertCnstr(toUnderlying(finalExpr))
+    val cnstr = toUnderlying(syms.simplifyForalls(finalExpr))
+    solver.assertCnstr(cnstr)
   }
 
   override def check(config: CheckConfiguration): config.Response[Model, Assumptions] =

@@ -7,38 +7,33 @@ package quantified
 import ast._
 import utils._
 
-trait Monomorphize { self =>
+trait Monomorphize extends LiveSymbolTransformer { self =>
 
-  val sourceProgram: Program
+  val ctx: Context
 
-  import sourceProgram._
-  import sourceProgram.trees._
-  import sourceProgram.trees.dsl._
-  import sourceProgram.symbols._
+  val t: self.s.type = self.s
 
-  def transform(expr: Expr): (Program { val trees: sourceProgram.trees.type }, Expr) = {
-    val (syms, monoExpr) = fixpoint(monomorphizeProgram)((sourceProgram.symbols, expr))
+  import s._
 
-    val monoFunctions = syms.functions.values.toSeq.filter(_.tparams.isEmpty)
-    val monoSyms = NoSymbols.withFunctions(monoFunctions).withADTs(syms.adts.values.toSeq)
+  def transform(syms: s.Symbols, expr: s.Expr): (t.Symbols, t.Expr) = {
+    val (newSyms, monoExpr) = fixpoint(monomorphize)((syms, expr))
 
-    val program = new Program {
-      val trees: sourceProgram.trees.type = sourceProgram.trees
-      val symbols = monoSyms
-      val ctx = sourceProgram.ctx
-    }
+    val monoFunctions = newSyms.functions.values.toSeq.filter(_.tparams.isEmpty)
+    val monoSyms = NoSymbols
+      .withFunctions(monoFunctions)
+      .withADTs(newSyms.adts.values.toSeq)
 
-    (program, monoExpr)
+    (monoSyms, monoExpr)
   }
 
-  private def monomorphizeProgram(input: (Symbols, Expr)): (Symbols, Expr) = {
+  private def monomorphize(input: (s.Symbols, s.Expr)): (s.Symbols, s.Expr) = {
     implicit val syms = input._1
 
     val (expr, adts) = instantiateGenericAssertions(input._2)
     val entry = entryPoint(expr)(syms.withADTs(adts.toSeq))
 
     val callGraph = new TypedCallGraph {
-      val trees: sourceProgram.trees.type = sourceProgram.trees
+      val trees: s.type = s
       val symbols = syms.withFunctions(Seq(entry))
     }
 
@@ -47,7 +42,7 @@ trait Monomorphize { self =>
     if (paramCalls.isEmpty) return (syms, expr)
 
     val (beforePoly, beforeMono) = paramCalls partition {
-      case (fd, tps) => tps exists isParametricType
+      case (fd, tps) => tps exists syms.isParametricType
     }
 
     val monoMap = beforeMono.map((monomorphizeFunction _).tupled).flatten.toMap
@@ -80,7 +75,7 @@ trait Monomorphize { self =>
     (res, adts.values.toSet)
   }
 
-  private def monomorphizeInvocations(map: Map[TypedFunDef, FunDef])(fd: FunDef): FunDef = {
+  private def monomorphizeInvocations(map: Map[TypedFunDef, FunDef])(fd: FunDef)(implicit syms: Symbols): FunDef = {
     def go(expr: Expr): Option[Expr] = expr match {
       case fi @ FunctionInvocation(id, tps, args) if map contains fi.tfd =>
         val mono = map(fi.tfd)
@@ -102,8 +97,10 @@ trait Monomorphize { self =>
     fd.copy(fullBody = exprOps.postMap(go)(fd.fullBody))
   }
 
-  private def monomorphizeFunction(fd: FunDef, tps: Seq[Type]): Option[(TypedFunDef, FunDef)] = {
-    val isPoly = tps exists isParametricType
+  private def monomorphizeFunction(fd: FunDef, tps: Seq[Type])(implicit syms: Symbols): Option[(TypedFunDef, FunDef)] = {
+    implicit val printerOpts: PrinterOptions = PrinterOptions.fromSymbols(syms, ctx)
+
+    val isPoly = tps exists syms.isParametricType
     if (isPoly) return None
 
     val monoId = FreshIdentifier(s"${fd.id}_mono_${tps.map(_.compactString) mkString "-"}")
@@ -123,9 +120,13 @@ trait Monomorphize { self =>
 }
 
 object Monomorphize {
-  def apply(p: Program): Monomorphize {
-    val sourceProgram: p.type
+
+  def apply(trees: Trees, context: Context): Monomorphize {
+    val s: trees.type
+    val ctx: context.type
   } = new Monomorphize {
-    val sourceProgram: p.type = p
+    override val s: trees.type = trees
+    override val ctx: context.type = context
   }
+
 }

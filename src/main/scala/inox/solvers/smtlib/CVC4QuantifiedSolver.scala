@@ -31,9 +31,15 @@ trait CVC4QuantifiedSolver extends Solver with QuantifiedSolver { self =>
 
   private[this] type Prog = Program { val trees: self.program.trees.type }
 
-  def newSolver(p: Prog): CVC4Solver { val program: Prog } = {
+  def newSolver(p: Prog, syms: Symbols): CVC4Solver { val program: Prog } = {
+    val newProgram = new Program {
+      val trees = p.trees
+      val symbols = syms
+      val ctx = p.ctx
+    }
+
     new {
-      val program: p.type = p
+      val program = newProgram
       val options = self.options
     } with CVC4Solver {
       lazy val semantics = program.getSemantics(null)
@@ -41,26 +47,26 @@ trait CVC4QuantifiedSolver extends Solver with QuantifiedSolver { self =>
   }
 
   override def assertCnstr(expr: Expr): Unit = {
-    val monomorphize = Monomorphize(program)
-    val (monoProgram, monoExpr) = monomorphize.transform(expr)
+    val monomorphize = Monomorphize(program.trees, program.ctx)
+    val lambdaEncoder = LambdaEncoder(program.trees, program.ctx)
+    val transformer = monomorphize andThen lambdaEncoder
 
-    val lambdaEncoder = LambdaEncoder(monoProgram)
-    val (finalProgram, finalExpr) = lambdaEncoder.transform(monoExpr)
+    val (syms, finalExpr) = transformer.transform(program.symbols, expr)
 
-    import finalProgram._
+    println(syms + "\n\n" + finalExpr + "\n")
 
-    println(finalProgram + "\n\n" + finalExpr + "\n")
+    val solver = newSolver(program.asInstanceOf[Prog], syms)
 
-    val solver = newSolver(finalProgram)
     // @romac - FIXME
     underlying = solver.asInstanceOf[CVC4Solver { val program: self.program.type }]
 
-    val functions = finalProgram.symbols.functions.values.toSeq
+    val functions = syms.functions.values.toSeq
     functions
-      .flatMap(getFunctionMeaning(_))
+      .flatMap(getFunctionMeaning(_)(syms))
       .foreach(solver.assertCnstr(_))
 
-      underlying.assertCnstr(finalExpr)
+    val cnstr = syms.simplifyForalls(finalExpr)
+    solver.assertCnstr(cnstr)
   }
 
   override def check(config: CheckConfiguration): config.Response[Model, Assumptions] =
