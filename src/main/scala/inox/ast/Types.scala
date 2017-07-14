@@ -92,7 +92,10 @@ trait Types { self: Trees =>
   case class SetType(base: Type) extends Type
   case class BagType(base: Type) extends Type
   case class MapType(from: Type, to: Type) extends Type
+
   case class FunctionType(from: Seq[Type], to: Type) extends Type {
+    val arity: Int = from.length
+
     override def compactString(implicit opts: PrinterOptions): String =
       from.map(_.compactString).mkString + "->" + to.compactString
   }

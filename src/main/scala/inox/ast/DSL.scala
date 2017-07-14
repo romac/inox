@@ -68,7 +68,8 @@ trait DSL {
     def apply(es: Expr*) = Application(e, es.toSeq)
 
     def isInstOf(tp: ADTType) = IsInstanceOf(e, tp)
-    def asInstOf(tp: ADTType) = AsInstanceOf(e, tp)
+    // def asInstOf(tp: ADTType) = AsInstanceOf(e, tp)
+    def asInstOf(tp: Type) = AsInstanceOf(e, tp)
   }
 
   // Literals

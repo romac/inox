@@ -13,7 +13,7 @@ trait QuantifiedSolver { self: Solver =>
 
     val ufd = unroll(fd)
     val body = Equals(
-      FunctionInvocation(ufd.id, Seq.empty, ufd.params.map(_.toVariable)),
+      FunctionInvocation(ufd.id, ufd.tparams.map(_.tp), ufd.params.map(_.toVariable)),
       ufd.fullBody
     )
 

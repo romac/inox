@@ -63,6 +63,7 @@ trait NativeZ3QuantifiedSolver extends Solver with QuantifiedSolver { self =>
     underlying = solver.asInstanceOf[Z3Quantified { val program: self.program.type }]
 
     val functions = syms.functions.values.toSeq
+
     functions
       .flatMap(getFunctionMeaning(_)(syms))
       .map(toUnderlying(_))

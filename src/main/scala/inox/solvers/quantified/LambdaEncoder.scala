@@ -19,7 +19,7 @@ trait LambdaEncoder extends LiveSymbolTransformer   { self =>
   private val lambdas        = new IncrementalSet[Lambda]
   private val lambdaFreeVars = new IncrementalMap[Lambda, Seq[Variable]]()
   private val qLambdas       = new IncrementalMap[FunctionType, FunDef]()
-  private val lambdaSorts    = new IncrementalMap[FunctionType, ADTSort]()
+  private val lambdaSorts    = new IncrementalMap[Int, ADTSort]()
   private val lambdaCons     = new IncrementalBijection[Lambda, ADTConstructor]()
   private val lambdaInsts    = new IncrementalMap[Lambda, Expr]()
   private val sortCons       = new IncrementalMap[ADTSort, Set[ADTConstructor]]()
@@ -153,12 +153,12 @@ trait LambdaEncoder extends LiveSymbolTransformer   { self =>
         val cons = caller.adt.getADT(sym).definition.typed(sym).toConstructor.definition
         val ft @ FunctionType(_, _) = bestRealType(lambdaCons.getA(cons).get.getType(sym))
         val fd = mkQLambda(ft)
-        Some(fd.apply((caller +: args): _*))
+        Some(E(fd.id).apply(caller.getType, args.map(_.getType): _*)((caller +: args): _*))
 
       case Application(caller, args) =>
         val ft @ FunctionType(_, _) = bestRealType(caller.getType(syms))
         val fd = mkQLambda(ft)
-        Some(fd.apply((caller +: args): _*))
+        Some(E(fd.id).apply(caller.getType, args.map(_.getType): _*)((caller +: args): _*))
 
       case _ => None
     }
@@ -173,7 +173,7 @@ trait LambdaEncoder extends LiveSymbolTransformer   { self =>
   def funToSort(tp: Type)(implicit syms: Symbols): Type = {
     def go(tp: Type): Option[Type] = tp match {
       case ft: FunctionType =>
-        Some(mkLambdaSort(ft).typed.toType)
+        Some(mkLambdaSort(ft).typed(ft.from :+ ft.to).toType)
       case _ =>
         None
     }
@@ -195,6 +195,9 @@ trait LambdaEncoder extends LiveSymbolTransformer   { self =>
         Some(fb.copy(base = funToSort(fb.base)))
       case fm: FiniteMap if isFun(fm.keyType) || isFun(fm.valueType) =>
         Some(fm.copy(keyType = funToSort(fm.keyType), valueType = funToSort(fm.valueType)))
+      case fi: FunctionInvocation =>
+        Some(fi.copy(tps = fi.tps.map(funToSort)))
+
       case adt: ADT =>
         val ADTType(id, tps) = adt.adt
         val tpe = ADTType(id, tps.map(tp => funToSort(tp)))
@@ -210,13 +213,20 @@ trait LambdaEncoder extends LiveSymbolTransformer   { self =>
     (exprOps.variablesOf(lam.body) -- lam.args.map(_.toVariable)).toSeq
   }
 
-  private def mkLambdaSort(ft: FunctionType)(implicit syms: Symbols): ADTSort = {
-    implicit val printerOpts: PrinterOptions = PrinterOptions.fromSymbols(syms, ctx)
-    lambdaSorts.cached(ft) {
-      val id = FreshIdentifier("Lambda_" + ft.compactString)
-      new ADTSort(id, Seq.empty, Seq.empty, Set.empty)
-    }
+  private def mkFreshParams(n: Int): Seq[TypeParameterDef] = {
+    // FIXME: Only works for arities < 26
+    ('A' to 'Z').take(n + 1)
+                .map(_.toString)
+                .map(FreshIdentifier(_))
+                .map(TypeParameterDef(_))
   }
+
+  private def mkLambdaSort(ft: FunctionType)(implicit syms: Symbols): ADTSort = lambdaSorts.cached(ft.arity) {
+    val id = FreshIdentifier("Arrow" + ft.arity.toString)
+    new ADTSort(id, mkFreshParams(ft.arity), Seq.empty, Set.empty)
+  }
+
+  private var lambdaConsNum: Int = 0
 
   private def mkLambdaCons(lam: Lambda)(implicit syms: Symbols): ADTConstructor = lambdaCons.cachedB(lam) {
     import syms._
@@ -225,11 +235,12 @@ trait LambdaEncoder extends LiveSymbolTransformer   { self =>
     val sort = mkLambdaSort(ft)
     val frees = freeVars(lam)
     val fields = frees.map(_.toVal).map(v => v.copy(tpe = funToSort(v.tpe)))
-    val id = FreshIdentifier(sort.id.name + "_Cons")
+    val id = FreshIdentifier(sort.id.name + "_" + lambdaConsNum)
+    lambdaConsNum += 1
 
-    lambdaSorts += ft -> sort.copy(cons = sort.cons :+ id)
+    lambdaSorts += ft.arity -> sort.copy(cons = sort.cons :+ id)
 
-    val cons = new ADTConstructor(id, Seq.empty, Some(sort.id), fields, Set.empty)
+    val cons = new ADTConstructor(id, mkFreshParams(ft.arity), Some(sort.id), fields, Set.empty)
     val allCons = sortCons.getOrElse(sort, Set.empty)
     sortCons += sort -> (allCons + cons)
     cons
@@ -244,7 +255,7 @@ trait LambdaEncoder extends LiveSymbolTransformer   { self =>
     val cons = mkLambdaCons(lam)
     val sort = mkLambdaSort(ft)
 
-    ADT(cons.typed.toType, freeVars(lam))
+    ADT(cons.typed(ft.from :+ ft.to).toType, freeVars(lam))
   }
 
   private def simplify(expr: Expr)(implicit syms: Symbols): Expr = {
@@ -258,7 +269,7 @@ trait LambdaEncoder extends LiveSymbolTransformer   { self =>
 
     private def newQLambdaId(ft: FunctionType)(implicit syms: Symbols): Identifier = {
       implicit val printerOpts: PrinterOptions = PrinterOptions.fromSymbols(syms, ctx)
-      FreshIdentifier("qLambda_" + ft.compactString)
+      FreshIdentifier("apply_Arrow" + ft.arity)
     }
 
     private def mkQLambda(ft: FunctionType)(implicit syms: Symbols): FunDef = qLambdas.cached(ft) {
@@ -266,47 +277,44 @@ trait LambdaEncoder extends LiveSymbolTransformer   { self =>
       val sort = mkLambdaSort(ft)
       val conss = sortCons.getOrElse(sort, Set.empty).toList
 
-      if (conss.isEmpty) {
-        val consId = FreshIdentifier(sort.id.name + "_Cons")
-        val cons = new ADTConstructor(consId, Seq.empty, Some(sort.id), Seq.empty, Set.empty)
-        sortCons += sort -> Set(cons)
-        lambdaSorts += ft -> sort.copy(cons = sort.cons :+ consId)
-      }
+      // if (conss.isEmpty) {
+      //   val consId = FreshIdentifier(sort.id.name + "_Cons")
+      //   val cons = new ADTConstructor(consId, Seq.empty, Some(sort.id), Seq.empty, Set.empty)
+      //   sortCons += sort -> Set(cons)
+      //   lambdaSorts += ft.arity -> sort.copy(cons = sort.cons :+ consId)
+      // }
 
       val lam = Variable.fresh("lam", sort.typed.toType)
 
-      val newVars = ft.from map { tpe =>
-        Variable.fresh("arg", tpe, alwaysShowUniqueID = true)
+      val newVars = sort.tparams.init map { tparam =>
+        Variable.fresh("arg", tparam.tp, alwaysShowUniqueID = true)
       }
 
       val newArgs = newVars.map(_.toVal)
 
       val branches = conss.map { cons =>
-        val tpe = cons.typed.toType
+        val tpe = cons.typed(ft.from :+ ft.to).toType
         val lets = cons.fields.map { v =>
           (body: Expr) => Let(v, lam.asInstOf(tpe).getField(v.id), body)
         }
 
         val lambda = normalizeArgs(lambdaCons.fromB(cons), newArgs)
-        val body = simplify(lambda.body)
+        val body: Expr = simplify(lambda.body).asInstOf(sort.tparams.last.tp)
         val args = exprOps.variablesOf(body).toSeq.map(_.toVal)
         val thenBody = lets.foldRight(body) { (f, e) => f(e) }
 
         tpe -> thenBody
       }
 
-      val (body, flags) = branches.isEmpty match {
-        case true =>
-          val v = Variable(FreshIdentifier("<uninterpreted>"), ft.to, Set.empty)
-          (v, Set[Flag](Uninterpreted))
-        case false =>
-          val cases = branches.init.foldRight(branches.last._2) { case ((tpe, thn), els) =>
-            IfExpr(lam.isInstOf(tpe), thn, els)
-          }
-          (cases, Set.empty[Flag])
+      val unintepretedVariable: Expr = Variable(FreshIdentifier("<uninterpreted>"), ft.to, Set.empty)
+
+      val body = branches.foldRight(unintepretedVariable) { case ((tpe, thn), els) =>
+        IfExpr(lam.isInstOf(tpe), thn, els)
       }
 
-      new FunDef(id, Seq.empty, lam.toVal +: newArgs, ft.to, body, flags)
+      val flags = if (branches.isEmpty) Set[Flag](Uninterpreted) else Set.empty[Flag]
+
+      new FunDef(id, mkFreshParams(ft.arity), lam.toVal +: newArgs, sort.tparams.last.tp, body, flags)
     }
 
   }

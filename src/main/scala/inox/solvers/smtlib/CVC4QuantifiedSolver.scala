@@ -61,6 +61,11 @@ trait CVC4QuantifiedSolver extends Solver with QuantifiedSolver { self =>
     underlying = solver.asInstanceOf[CVC4Solver { val program: self.program.type }]
 
     val functions = syms.functions.values.toSeq
+
+    functions
+      .flatMap(getFunctionMeaning(_)(syms))
+      .foreach(println)
+
     functions
       .flatMap(getFunctionMeaning(_)(syms))
       .foreach(solver.assertCnstr(_))

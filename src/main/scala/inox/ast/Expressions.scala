@@ -290,7 +290,8 @@ trait Expressions { self: Trees =>
     */
   case class AsInstanceOf(expr: Expr, tpe: Type) extends Expr with CachingTyped {
     protected def computeType(implicit s: Symbols): Type =
-      if (s.typesCompatible(tpe, expr.getType)) tpe else Untyped
+      tpe
+      // if (s.typesCompatible(tpe, expr.getType)) tpe else Untyped
   }
 
   /** $encodingof `value.selector` where value is of a case class type

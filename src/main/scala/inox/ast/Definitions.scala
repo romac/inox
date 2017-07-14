@@ -500,6 +500,7 @@ trait Definitions { self: Trees =>
 
     /** Wraps this [[FunDef]] in a in [[TypedFunDef]] with the specified type parameters */
     def typed(tps: Seq[Type])(implicit s: Symbols): TypedFunDef = {
+      println((id, tps, tparams))
       assert(tps.size == tparams.size)
       TypedFunDef(this, tps)
     }
