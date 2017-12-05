@@ -348,12 +348,15 @@ trait TreeDeconstructor {
   protected type DeconstructedType = (Seq[Identifier], Seq[s.Type], Seq[s.Flag], TypeBuilder)
 
   def deconstruct(tp: s.Type): DeconstructedType = tp match {
-    case s.ADTType(id, ts) => (Seq(id), ts, Seq(), (ids, ts, _) => t.ADTType(ids.head, ts))
     case s.TupleType(ts) => (Seq(), ts, Seq(), (_, ts, _) => t.TupleType(ts))
     case s.SetType(tp) => (Seq(), Seq(tp), Seq(), (_, ts, _) => t.SetType(ts.head))
     case s.BagType(tp) => (Seq(), Seq(tp), Seq(), (_, ts, _) => t.BagType(ts.head))
     case s.MapType(from,to) => (Seq(), Seq(from, to), Seq(), (_, ts, _) => t.MapType(ts(0), ts(1)))
     case s.FunctionType(fts, tt) => (Seq(), tt +: fts, Seq(),  (_, ts, _) => t.FunctionType(ts.tail.toList, ts.head))
+
+    case adt @ s.ADTType(id, ts) => (
+      Seq(id), ts, adt.flags.toSeq.sortBy(_.toString),
+      (ids, ts, flags) => t.ADTType(ids.head, ts, flags.toSet))
 
     case s.TypeParameter(id, flags) => (
       Seq(id), Seq(), flags.toSeq.sortBy(_.toString),

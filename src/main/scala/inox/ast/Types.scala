@@ -38,6 +38,11 @@ trait Types { self: Trees =>
     }
   }
 
+  // FIXME: Unique
+  trait HasFlags {
+    var flags: Set[Flag]
+  }
+
   case object Untyped extends Type
 
   case class BooleanType() extends Type
@@ -100,7 +105,9 @@ trait Types { self: Trees =>
   sealed case class MapType(from: Type, to: Type) extends Type
   sealed case class FunctionType(from: Seq[Type], to: Type) extends Type
 
-  sealed case class ADTType(id: Identifier, tps: Seq[Type]) extends Type {
+  sealed case class ADTType(id: Identifier, tps: Seq[Type]) extends Type with HasFlags {
+    var flags: Set[Flag] = Set.empty // FIXME: Unique
+
     def lookupADT(implicit s: Symbols): Option[TypedADTDefinition] = s.lookupADT(id, tps)
     def getADT(implicit s: Symbols): TypedADTDefinition = s.getADT(id, tps)
 
@@ -108,6 +115,15 @@ trait Types { self: Trees =>
       case Some(tcons: TypedADTConstructor) =>
         tcons.fields.collectFirst { case vd @ ValDef(`selector`, _, _) => vd }
       case _ => None
+    }
+  }
+
+  // FIXME: Unique
+  object ADTType {
+    def apply(id: Identifier, tps: Seq[Type], flags: Set[Flag]): ADTType = {
+      val adt = ADTType(id, tps)
+      adt.flags = flags
+      adt
     }
   }
 
