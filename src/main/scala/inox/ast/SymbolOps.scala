@@ -41,6 +41,21 @@ trait SymbolOps { self: TypeOps =>
     simplifierCache.getOrElseUpdate(purityOpts, createSimplifier(purityOpts))
   }
 
+  protected class EvaluatorWithPC(val opts: PurityOptions) extends transformers.EvaluatorWithPC {
+    val trees: self.trees.type = self.trees
+    val symbols: self.symbols.type = self.symbols
+  }
+
+  /** Override point for partial evaluator creation */
+  protected def createPartialEvaluator(opts: PurityOptions): EvaluatorWithPC = {
+    new EvaluatorWithPC(opts)
+  }
+
+  private var partialEvaluatorCache: MutableMap[PurityOptions, EvaluatorWithPC] = MutableMap.empty
+  def partialEvaluator(implicit purityOpts: PurityOptions): EvaluatorWithPC = synchronized {
+    partialEvaluatorCache.getOrElseUpdate(purityOpts, createPartialEvaluator(purityOpts))
+  }
+
   /** Replace each node by its constructor
     *
     * Remap the expression by calling the corresponding constructor
@@ -70,7 +85,17 @@ trait SymbolOps { self: TypeOps =>
     postMap(step)(expr)
   }
 
-  def simplifyExpr(expr: Expr)(implicit opts: PurityOptions): Expr = simplifier.transform(expr)
+  def simplifyExpr(expr: Expr)(implicit opts: PurityOptions, ctx: Context): Expr = {
+    val partiallyEvaluate = ctx.options.findOptionOrDefault(transformers.optPartialEval)
+    if (partiallyEvaluate)
+      partialEvalExpr(expr)
+    else
+      simplifier.transform(expr)
+  }
+
+  def partialEvalExpr(expr: Expr)(implicit opts: PurityOptions): Expr =  {
+    partialEvaluator.transform(expr)
+  }
 
   /** Normalizes the expression expr */
   def normalizeExpression(expr: Expr): Expr = {
