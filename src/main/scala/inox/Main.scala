@@ -62,6 +62,7 @@ trait MainHelpers {
     ast.optPrintTypes -> Description(Printing, "Attach types to trees when printing"),
     solvers.optAssumeChecked -> Description(Solvers, "Assume that all impure expression have been checked"),
     solvers.optNoSimplifications -> Description(Solvers, "Disable selector/quantifier simplifications in solvers"),
+    transformers.optPartialEval -> Description(Solvers, "Partially evaluate expressions when simplifying them"),
     solvers.optCheckModels -> Description(Solvers, "Double-check counter-examples with evaluator"),
     solvers.optSilentErrors -> Description(Solvers, "Fail silently into UNKNOWN when encountering an error"),
     solvers.unrolling.optUnrollFactor -> Description(Solvers, "Number of unrollings to perform in each unfold step"),

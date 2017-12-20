@@ -70,7 +70,9 @@ trait SymbolOps { self: TypeOps =>
     postMap(step)(expr)
   }
 
-  def simplifyExpr(expr: Expr)(implicit opts: PurityOptions): Expr = simplifier.transform(expr)
+  def simplifyExpr(expr: Expr)(implicit opts: PurityOptions, ctx: Context): Expr = {
+    simplifier.transform(expr)
+  }
 
   /** Normalizes the expression expr */
   def normalizeExpression(expr: Expr): Expr = {
@@ -129,7 +131,7 @@ trait SymbolOps { self: TypeOps =>
     * If `force` is omitted, the given expression will only be evaluated if it is
     * ground, pure, and does not contain choose or quantifiers.
     */
-  def simplifyGround(expr: Expr, reportErrors: Boolean = false)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
+  def simplifyGround(expr: Expr, reportErrors: Boolean = false)(implicit sem: Semantics, ctx: Context): Expr = {
     val evalCtx = ctx.withOpts(evaluators.optEvalQuantifiers(false))
     val evaluator = sem.getEvaluator(evalCtx)
 
@@ -791,7 +793,7 @@ trait SymbolOps { self: TypeOps =>
   case class NoSimpleValue(tpe: Type) extends Exception(s"No simple value found for type $tpe")
 
   /** Returns simplest value of a given type */
-  def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
+  def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: Semantics, ctx: Context): Expr = {
     def rec(tpe: Type, seen: Set[Type]): Expr = tpe match {
       case StringType()               => StringLiteral("")
       case BVType(size)               => BVLiteral(0, size)
@@ -1114,7 +1116,7 @@ trait SymbolOps { self: TypeOps =>
     mergeCalls(liftCalls(expr))
   }
 
-  private[inox] def simplifyFormula(e: Expr)(implicit ctx: Context, sem: symbols.Semantics): Expr = {
+  private[inox] def simplifyFormula(e: Expr)(implicit ctx: Context, sem: Semantics): Expr = {
     implicit val simpOpts = SimplificationOptions(ctx)
     implicit val purityOpts = PurityOptions(ctx)
 

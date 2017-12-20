@@ -630,6 +630,8 @@ trait Expressions { self: Trees =>
   sealed case class TupleSelect(tuple: Expr, index: Int) extends Expr with CachingTyped {
     require(index >= 1)
 
+    val selectorIndex = index - 1
+
     protected def computeType(implicit s: Symbols): Type = tuple.getType match {
       case tp @ TupleType(ts) =>
         require(index <= ts.size, s"Got index $index for '$tuple' of type '$tp")

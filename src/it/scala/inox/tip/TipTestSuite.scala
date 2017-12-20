@@ -4,12 +4,13 @@ package inox
 package tip
 
 import solvers._
+import transformers._
 
 import scala.language.existentials
 
 class TipTestSuite extends TestSuite with ResourceUtils {
 
-  override def configurations = Seq(
+  override def configurations: Seq[Seq[OptionValue[_]]] = Seq(
     Seq(optSelectedSolvers(Set("nativez3")), optCheckModels(true)),
     Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true)),
     Seq(optSelectedSolvers(Set("smt-cvc4")), optCheckModels(true)),
@@ -33,6 +34,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
         // this test only holds when assumeChecked=false
         case (_, "LambdaEquality2.scala-1.tip")
         if ctx.options.findOptionOrDefault(optAssumeChecked).assumeChecked => Skip
+
         case _ => Test
       }
 
@@ -48,6 +50,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
         case ("smt-cvc4", "Instantiation.scala-0.tip") => Skip
         case ("smt-cvc4", "LetsInForall.tip") => Skip
         case ("smt-cvc4", "Weird.scala-0.tip") => Skip
+
         case _ => Test
       }
       case _ => Test
@@ -90,5 +93,23 @@ class TipTestSuite extends TestSuite with ResourceUtils {
         assert(ctx.reporter.errorCount > 0)
       }
     }
+  }
+}
+
+class PartialEvalTestSuite extends TipTestSuite {
+  override def configurations: Seq[Seq[OptionValue[_]]] = Seq(
+    Seq(
+      optSelectedSolvers(Set("nativez3")),
+      optCheckModels(true),
+      optAssumeChecked(PurityOptions.AssumeChecked),
+      optPartialEval(true),
+      optTimeout(30)
+    )
+  )
+
+  override protected def optionsString(options: Options): String = {
+    "solver=" + options.findOptionOrDefault(optSelectedSolvers).head +
+    " assck=" + options.findOptionOrDefault(optAssumeChecked).assumeChecked +
+    (if (options.findOptionOrDefault(optPartialEval)) " partialeval" else "")
   }
 }
