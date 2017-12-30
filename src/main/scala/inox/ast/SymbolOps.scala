@@ -87,9 +87,12 @@ trait SymbolOps { self: TypeOps =>
 
   def simplifyExpr(expr: Expr)(implicit opts: PurityOptions, ctx: Context): Expr = {
     val partiallyEvaluate = ctx.options.findOptionOrDefault(transformers.optPartialEval)
-    if (partiallyEvaluate)
-      partialEvalExpr(expr)
-    else
+    if (partiallyEvaluate) {
+      val res = partialEvalExpr(expr)
+      // println("BEFORE: " + expr)
+      // println("AFTER:  " + res)
+      res
+    } else
       simplifier.transform(expr)
   }
 

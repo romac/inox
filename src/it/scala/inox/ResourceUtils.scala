@@ -12,7 +12,7 @@ import utils._
 trait ResourceUtils {
 
   def resourceFiles(dir: String, filter: String => Boolean = (s: String) => true, recursive: Boolean = false): Seq[File] = {
-    Option(getClass.getResource(s"/$dir")).toSeq.flatMap { url =>
+    val files = Option(getClass.getResource(s"/$dir")).toSeq.flatMap { url =>
       val baseDir = new File(url.getPath)
 
       def rec(f: File): Seq[File] = Option(f.listFiles()).getOrElse(Array()).flatMap { f =>
@@ -26,5 +26,7 @@ trait ResourceUtils {
 
       rec(baseDir).filter(f => filter(f.getPath)).toSeq.sortBy(_.getPath).reverse
     }
+
+    files.sortBy(_.getPath)
   }
 }

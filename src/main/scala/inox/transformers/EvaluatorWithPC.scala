@@ -244,7 +244,7 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
     case Implies(l, r) => simplify(or(not(l), r), path)
 
     case And(e +: es) => simplify(e, path) match {
-      case (BooleanLiteral(true), true) => simplify(andJoin(es), path)
+      case (BooleanLiteral(true), true) => simplify(andJoin(es), path withCond e)
       case (BooleanLiteral(false), true) => (BooleanLiteral(false), true)
       case (re, pe) =>
         val (res, pes) = simplify(andJoin(es), path withCond re)
@@ -335,6 +335,11 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
       val selectorMap: Map[Expr, Expr] = (selectors zip vds.map(_.toVariable)).toMap
       simplify((vds zip es).foldRight(replace(selectorMap, b)) { case ((vd, e), b) => Let(vd, e, b) }, path)
 
+    // case let @ Let(vd, e, b) =>
+    //   val (re, pe) = simplify(e, path)
+    //   val (rb, pb) = simplify(b, path withBinding (vd -> re))
+    //   simplify(replaceFromSymbols(Map(vd -> re), rb), path)
+
     // @nv: Simplifying lets can lead to exponential simplification cost.
     //      The `simplifyCache` greatly reduces the cost of simplifying lets but
     //      there are still corner cases that will make this expensive.
@@ -351,14 +356,14 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
           val v = vd.toVariable
           lazy val insts = count { case `v` => 1 case _ => 0 }(rb)
           lazy val inLambda = exists { case l: Lambda => variablesOf(l) contains v case _ => false }(rb)
-          lazy val immediateCall = existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
+          lazy val immediateCall = true // existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
           lazy val containsLambda = exists { case l: Lambda => true case _ => false }(re)
           lazy val realPE = opts match {
             case solvers.PurityOptions.Unchecked => pe
             case solvers.PurityOptions.TotalFunctions => pe
-            case _ =>
-              val simp = simplifier(solvers.PurityOptions.Unchecked)
-              simp.isPure(e, path.asInstanceOf[simp.CNFPath])
+            case _ => isPure(e, path)
+              // val simp = simplifier(solvers.PurityOptions.Unchecked)
+              // simp.isPure(e, path.asInstanceOf[simp.CNFPath])
           }
 
           val (lete, letp) = if (
@@ -399,11 +404,11 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
 
       val expr = tfd.withParamSubst(rargs, tfd.fullBody)
       if (isRecursive(tfd.fd.id)) {
-        if (canReduce(expr, path)) {
-          val (res, pres) = simplify(expr, path)
-          (res, pres && pfun)
-        } else {
-          (FunctionInvocation(id, tps, rargs), pfun)
+        tryReduce(expr, path) match {
+          case Some(res) =>
+            (res, pfun)
+          case None =>
+            (FunctionInvocation(id, tps, rargs), pfun)
         }
       } else {
         val (res, pres) = simplify(expr, path)
@@ -455,7 +460,8 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
         (application(re, es.map(simplify(_, path)._1)), opts.assumeChecked)
     }
 
-    case _ =>
+    case e =>
+      // println("Unhandled tree: " + e.getClass)
       dynStack.value = 0 :: dynStack.value
       val re = super.rec(e, path)
       val (rpure, rest) = dynPurity.value.splitAt(dynStack.value.head)
@@ -472,13 +478,21 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
     (re, pe)
   }
 
-  // TODO: Relax this a bit?
-  private def canReduce(expr: Expr, path: CNFPath): Boolean = expr match {
+  private def tryReduce(expr: Expr, path: CNFPath): Option[Expr] = expr match {
     case IfExpr(cnd, thn, els) => transform(cnd, path) match {
-      case BooleanLiteral(_) => true
-      case rc => false
+      case BooleanLiteral(_) => Some(thn)
+      case rc => None
     }
-    case expr => false
+
+    case Assume(pred, body) =>
+      val (bl, _) = simplify(pred, path)
+      tryReduce(body, path withCond bl)
+
+    case let @ Let(vd, e, b) =>
+      tryReduce(b, path withBinding (vd -> e))
+
+    case expr =>
+      None
   }
 
   override protected def rec(e: Expr, path: CNFPath): Expr = {

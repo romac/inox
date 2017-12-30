@@ -4,21 +4,29 @@ package inox
 package tip
 
 import solvers._
+import transformers._
 
 import scala.language.existentials
 
 class TipTestSuite extends TestSuite with ResourceUtils {
 
   override def configurations = Seq(
-    Seq(optSelectedSolvers(Set("nativez3")), optCheckModels(true)),
-    Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true)),
-    Seq(optSelectedSolvers(Set("smt-cvc4")), optCheckModels(true)),
-    Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true), optAssumeChecked(PurityOptions.AssumeChecked))
+    // Seq(optSelectedSolvers(Set("nativez3")), optCheckModels(true)),
+    // Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true)),
+    // Seq(optSelectedSolvers(Set("smt-cvc4")), optCheckModels(true)),
+    // Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true), optAssumeChecked(PurityOptions.AssumeChecked))
+    Seq(
+      optSelectedSolvers(Set("smt-z3")),
+      optCheckModels(true),
+      optAssumeChecked(PurityOptions.AssumeChecked),
+      optPartialEval(true)
+    )
   )
 
   override protected def optionsString(options: Options): String = {
     "solver=" + options.findOptionOrDefault(optSelectedSolvers).head +
-    (if (options.findOptionOrDefault(optAssumeChecked).assumeChecked) " assumechecked" else "")
+    (if (options.findOptionOrDefault(optAssumeChecked).assumeChecked) " assumechecked" else "") +
+    (if (options.findOptionOrDefault(optPartialEval)) " partialeval" else "")
   }
 
   private def ignoreSAT(ctx: Context, file: java.io.File): FilterStatus = 
@@ -33,6 +41,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
         // this test only holds when assumeChecked=false
         case (_, "LambdaEquality2.scala-1.tip")
         if ctx.options.findOptionOrDefault(optAssumeChecked).assumeChecked => Skip
+
         case _ => Test
       }
 
@@ -48,6 +57,16 @@ class TipTestSuite extends TestSuite with ResourceUtils {
         case ("smt-cvc4", "Instantiation.scala-0.tip") => Skip
         case ("smt-cvc4", "LetsInForall.tip") => Skip
         case ("smt-cvc4", "Weird.scala-0.tip") => Skip
+
+        case (_, "BinarySearchTreeQuant2.scala-1.tip")
+          if ctx.options.findOptionOrDefault(optPartialEval) => Ignore
+
+        case (_, "PalindromeList1.tip")
+          if ctx.options.findOptionOrDefault(optPartialEval) => Ignore
+
+        case (_, "PigeonHole.tip")
+          if ctx.options.findOptionOrDefault(optPartialEval) => Ignore
+
         case _ => Test
       }
       case _ => Test
