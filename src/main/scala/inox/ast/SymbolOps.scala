@@ -86,18 +86,17 @@ trait SymbolOps { self: TypeOps =>
   }
 
   def simplifyExpr(expr: Expr)(implicit opts: PurityOptions, ctx: Context): Expr = {
-    val partiallyEvaluate = ctx.options.findOptionOrDefault(transformers.optPartialEval)
-    if (partiallyEvaluate) {
-      val res = partialEvalExpr(expr)
-      // println("BEFORE: " + expr)
-      // println("AFTER:  " + res)
-      res
-    } else
-      simplifier.transform(expr)
+    simplifier.transform(expr)
   }
 
-  def partialEvalExpr(expr: Expr)(implicit opts: PurityOptions): Expr =  {
-    partialEvaluator.transform(expr)
+  def partialEval(expr: Expr)(implicit opts: PurityOptions, ctx: Context): Expr =  {
+    val enabled = ctx.options.findOptionOrDefault(transformers.optPartialEval)
+    if (!enabled) return expr
+
+    val res: Expr = partialEvaluator.transform(expr)
+    ctx.reporter.info("BEFORE:\n=======\n" + expr + "\n")
+    ctx.reporter.info("AFTER:\n=======\n" + res + "\n")
+    res
   }
 
   /** Normalizes the expression expr */
@@ -1297,6 +1296,7 @@ trait SymbolOps { self: TypeOps =>
 
     if (simpOpts.simplify) {
       val simp: Expr => Expr =
+        ((e: Expr) => partialEval(e))         compose
         ((e: Expr) => simplifyGround(e))      compose
         ((e: Expr) => simplifyHOFunctions(e)) compose
         ((e: Expr) => simplifyExpr(e))        compose

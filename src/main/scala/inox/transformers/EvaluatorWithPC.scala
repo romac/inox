@@ -402,18 +402,28 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
       val (rargs, pargs) = args.map(simplify(_, path)).unzip
       val pfun = pargs.foldLeft(isPureFunction(id))(_ && _)
 
-      val expr = tfd.withParamSubst(rargs, tfd.fullBody)
-      if (isRecursive(tfd.fd.id)) {
+      // println(s"BEFORE:\n$fi\n")
+
+      val (res, _) = if (isRecursive(tfd.fd.id)) {
+        // println(s"$id is recursive")
+        val expr = tfd.withParamSubst(rargs, tfd.fullBody)
+        // println(s"after subst: $expr")
         tryReduce(expr, path) match {
           case Some(res) =>
-            (res, pfun)
+            // println(s"can be reduced to $res")
+            simplify(res, path)
           case None =>
             (FunctionInvocation(id, tps, rargs), pfun)
         }
       } else {
+        // println(s"$id is not recursive")
+        val expr = tfd.withParamSubst(rargs, tfd.fullBody)
         val (res, pres) = simplify(expr, path)
         (res, pres && pfun)
       }
+
+      // println(s"AFTER:\n$res\n")
+      (res, true)
 
     case adtSel @ ADTSelector(expr, sel) => simplify(expr, path) match {
       case (ADT(adt, args), padt) =>
@@ -480,8 +490,13 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
 
   private def tryReduce(expr: Expr, path: CNFPath): Option[Expr] = expr match {
     case IfExpr(cnd, thn, els) => transform(cnd, path) match {
-      case BooleanLiteral(_) => Some(thn)
-      case rc => None
+      case BooleanLiteral(true) => Some(thn)
+      case BooleanLiteral(false) => Some(els)
+      case rc => evalCond(rc) match {
+        case Some(true) => Some(thn)
+        case Some(false) => Some(els)
+        case None => None
+      }
     }
 
     case Assume(pred, body) =>
@@ -493,6 +508,12 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
 
     case expr =>
       None
+  }
+
+  private def evalCond(cnd: Expr): Option[Boolean] = cnd match {
+    case BooleanLiteral(b) => Some(b)
+    case Let(_, _, b) => evalCond(b)
+    case _ => None
   }
 
   override protected def rec(e: Expr, path: CNFPath): Expr = {
