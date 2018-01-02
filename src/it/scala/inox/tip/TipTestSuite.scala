@@ -16,7 +16,7 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     // Seq(optSelectedSolvers(Set("smt-cvc4")), optCheckModels(true)),
     // Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true), optAssumeChecked(PurityOptions.AssumeChecked))
     Seq(
-      optSelectedSolvers(Set("smt-z3")),
+      optSelectedSolvers(Set("nativez3")),
       optCheckModels(true),
       optAssumeChecked(PurityOptions.AssumeChecked),
       optPartialEval(true)
