@@ -280,6 +280,9 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
         }
     }
 
+      // case Assume(pred, body) =>
+      //   simplify(body, path withCond pred)
+
     case Assume(pred, body) => simplify(pred, path) match {
       case (BooleanLiteral(true), true) => simplify(body, path)
       case (BooleanLiteral(false), true) =>
