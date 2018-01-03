@@ -41,19 +41,19 @@ trait SymbolOps { self: TypeOps =>
     simplifierCache.getOrElseUpdate(purityOpts, createSimplifier(purityOpts))
   }
 
-  protected class EvaluatorWithPC(val opts: PurityOptions) extends transformers.EvaluatorWithPC {
+  protected class EvaluatorWithPC(val opts: PurityOptions, val context: Context, val semantics: Semantics) extends transformers.EvaluatorWithPC {
     val trees: self.trees.type = self.trees
     val symbols: self.symbols.type = self.symbols
   }
 
   /** Override point for partial evaluator creation */
-  protected def createPartialEvaluator(opts: PurityOptions): EvaluatorWithPC = {
-    new EvaluatorWithPC(opts)
+  protected def createPartialEvaluator(opts: PurityOptions, ctx: Context, sem: Semantics): EvaluatorWithPC = {
+    new EvaluatorWithPC(opts, ctx, sem)
   }
 
-  private var partialEvaluatorCache: MutableMap[PurityOptions, EvaluatorWithPC] = MutableMap.empty
-  def partialEvaluator(implicit purityOpts: PurityOptions): EvaluatorWithPC = synchronized {
-    partialEvaluatorCache.getOrElseUpdate(purityOpts, createPartialEvaluator(purityOpts))
+  private var partialEvaluatorCache: MutableMap[(PurityOptions, Context, Semantics), EvaluatorWithPC] = MutableMap.empty
+  def partialEvaluator(implicit opts: PurityOptions, ctx: Context, sem: Semantics): EvaluatorWithPC = synchronized {
+    partialEvaluatorCache.getOrElseUpdate((opts, ctx, sem), createPartialEvaluator(opts, ctx, sem))
   }
 
   /** Replace each node by its constructor
@@ -89,13 +89,13 @@ trait SymbolOps { self: TypeOps =>
     simplifier.transform(expr)
   }
 
-  def partialEval(expr: Expr)(implicit opts: PurityOptions, ctx: Context): Expr =  {
+  def partialEval(expr: Expr)(implicit opts: PurityOptions, ctx: Context, sem: Semantics): Expr =  {
     val enabled = ctx.options.findOptionOrDefault(transformers.optPartialEval)
     if (!enabled) return expr
 
     val res: Expr = partialEvaluator.transform(expr)
-    ctx.reporter.info("BEFORE:\n=======\n" + expr + "\n")
-    ctx.reporter.info("AFTER:\n=======\n" + res + "\n")
+    ctx.reporter.info(s"BEFORE (${expr.getClass}):\n=======\n" + expr + "\n")
+    ctx.reporter.info(s"AFTER (${expr.getClass}):\n=======\n" + res + "\n")
     res
   }
 
@@ -156,7 +156,7 @@ trait SymbolOps { self: TypeOps =>
     * If `force` is omitted, the given expression will only be evaluated if it is
     * ground, pure, and does not contain choose or quantifiers.
     */
-  def simplifyGround(expr: Expr, reportErrors: Boolean = false)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
+  def simplifyGround(expr: Expr, reportErrors: Boolean = false)(implicit sem: Semantics, ctx: Context): Expr = {
     val evalCtx = ctx.withOpts(evaluators.optEvalQuantifiers(false))
     val evaluator = sem.getEvaluator(evalCtx)
 
@@ -818,7 +818,7 @@ trait SymbolOps { self: TypeOps =>
   case class NoSimpleValue(tpe: Type) extends Exception(s"No simple value found for type $tpe")
 
   /** Returns simplest value of a given type */
-  def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: symbols.Semantics, ctx: Context): Expr = {
+  def simplestValue(tpe: Type, allowSolver: Boolean = true)(implicit sem: Semantics, ctx: Context): Expr = {
     def rec(tpe: Type, seen: Set[Type]): Expr = tpe match {
       case StringType()               => StringLiteral("")
       case BVType(size)               => BVLiteral(0, size)
@@ -1290,7 +1290,7 @@ trait SymbolOps { self: TypeOps =>
     mergeCalls(liftCalls(expr))
   }
 
-  private[inox] def simplifyFormula(e: Expr)(implicit ctx: Context, sem: symbols.Semantics): Expr = {
+  private[inox] def simplifyFormula(e: Expr)(implicit ctx: Context, sem: Semantics): Expr = {
     implicit val simpOpts = SimplificationOptions(ctx)
     implicit val purityOpts = PurityOptions(ctx)
 
