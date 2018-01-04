@@ -46,6 +46,7 @@ trait SolvingTestSuite extends TestSuite {
   override protected def optionsString(options: Options): String = {
     super.optionsString(options) +
     " assck=" + options.findOptionOrDefault(optAssumeChecked).assumeChecked +
-    " model=" + options.findOptionOrDefault(unrolling.optModelFinding)
+    " model=" + options.findOptionOrDefault(unrolling.optModelFinding) +
+    (if (options.findOptionOrDefault(transformers.optPartialEval)) " partial-eval" else "")
   }
 }

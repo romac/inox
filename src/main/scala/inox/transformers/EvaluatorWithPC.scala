@@ -29,6 +29,8 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
 
     import exprOps._
 
+    private val MaxFormulaSize: Int = 50
+
     def subsumes(that: CNFPath): Boolean =
       (conditions subsetOf that.conditions) &&
       (exprSubst.forall { case (k, e) => that.exprSubst.getB(k).exists(_ == e) }) &&
@@ -111,7 +113,7 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
 
     override def withBinding(p: (ValDef, Expr)) = {
       val (vd, expr) = p
-      if (formulaSize(expr) > 100) {
+      if (formulaSize(expr) > MaxFormulaSize) {
         this
       } else if (vd.tpe == BooleanType()) {
         new CNFPath(exprSubst, boolSubst + (vd.toVariable -> getClauses(expr)), conditions, cnfCache, simpCache)
@@ -138,7 +140,7 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
 
     override def withBound(b: ValDef) = this // NOTE CNFPath doesn't need to track such bounds.
 
-    override def withCond(e: Expr) = if (formulaSize(e) > 100) this else {
+    override def withCond(e: Expr) = if (formulaSize(e) > MaxFormulaSize) this else {
       val clauses = getClauses(e)
       val clauseSet = clauses.toSet
       val newConditions = conditions.flatMap { case clause @ TopLevelOrs(es) =>
@@ -223,7 +225,7 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
     case e if isGround(e) =>
       val evalCtx = context.withOpts(evaluators.optEvalQuantifiers(false))
       val evaluator = semantics.getEvaluator(context)
-      evaluator.eval(e).result.map(exprOps.freshenLocals(_)).get
+      evaluator.eval(e).result.map(exprOps.freshenLocals(_)).getOrElse(e)
 
     case e if path contains e => BooleanLiteral(true)
     case e if path contains not(e) => BooleanLiteral(false)

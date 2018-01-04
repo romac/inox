@@ -10,23 +10,16 @@ import scala.language.existentials
 
 class TipTestSuite extends TestSuite with ResourceUtils {
 
-  override def configurations = Seq(
-    // Seq(optSelectedSolvers(Set("nativez3")), optCheckModels(true)),
-    // Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true)),
-    // Seq(optSelectedSolvers(Set("smt-cvc4")), optCheckModels(true)),
-    // Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true), optAssumeChecked(PurityOptions.AssumeChecked))
-    Seq(
-      optSelectedSolvers(Set("nativez3")),
-      optCheckModels(true),
-      optAssumeChecked(PurityOptions.AssumeChecked),
-      optPartialEval(true)
-    )
+  override def configurations: Seq[Seq[OptionValue[_]]] = Seq(
+    Seq(optSelectedSolvers(Set("nativez3")), optCheckModels(true)),
+    Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true)),
+    Seq(optSelectedSolvers(Set("smt-cvc4")), optCheckModels(true)),
+    Seq(optSelectedSolvers(Set("smt-z3")),   optCheckModels(true), optAssumeChecked(PurityOptions.AssumeChecked))
   )
 
   override protected def optionsString(options: Options): String = {
     "solver=" + options.findOptionOrDefault(optSelectedSolvers).head +
-    (if (options.findOptionOrDefault(optAssumeChecked).assumeChecked) " assumechecked" else "") +
-    (if (options.findOptionOrDefault(optPartialEval)) " partialeval" else "")
+    (if (options.findOptionOrDefault(optAssumeChecked).assumeChecked) " assumechecked" else "")
   }
 
   private def ignoreSAT(ctx: Context, file: java.io.File): FilterStatus = 
@@ -57,15 +50,6 @@ class TipTestSuite extends TestSuite with ResourceUtils {
         case ("smt-cvc4", "Instantiation.scala-0.tip") => Skip
         case ("smt-cvc4", "LetsInForall.tip") => Skip
         case ("smt-cvc4", "Weird.scala-0.tip") => Skip
-
-        case (_, "BinarySearchTreeQuant2.scala-1.tip")
-          if ctx.options.findOptionOrDefault(optPartialEval) => Ignore
-
-        case (_, "PalindromeList1.tip")
-          if ctx.options.findOptionOrDefault(optPartialEval) => Ignore
-
-        case (_, "PigeonHole.tip")
-          if ctx.options.findOptionOrDefault(optPartialEval) => Ignore
 
         case _ => Test
       }
@@ -111,3 +95,22 @@ class TipTestSuite extends TestSuite with ResourceUtils {
     }
   }
 }
+
+class PartialEvalTestSuite extends TipTestSuite {
+  override def configurations: Seq[Seq[OptionValue[_]]] = Seq(
+    Seq(
+      optSelectedSolvers(Set("nativez3")),
+      optCheckModels(true),
+      optAssumeChecked(PurityOptions.AssumeChecked),
+      optPartialEval(true),
+      optTimeout(30)
+    )
+  )
+
+  override protected def optionsString(options: Options): String = {
+    "solver=" + options.findOptionOrDefault(optSelectedSolvers).head +
+    " assck=" + options.findOptionOrDefault(optAssumeChecked).assumeChecked +
+    (if (options.findOptionOrDefault(optPartialEval)) " partialeval" else "")
+  }
+}
+
