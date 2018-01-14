@@ -18,7 +18,54 @@ import scala.collection.mutable.{Map => MutableMap}
 
 object optPartialEval extends FlagOptionDef("partial-eval", false)
 
-trait EvaluatorWithPC extends TransformerWithPC { self =>
+trait PathUtil { self: EvaluatorWithPC =>
+
+  import trees._
+  import symbols._
+  import exprOps._
+  import dsl._
+
+  lazy private val solverCtx = context.withOpts(optPartialEval(false), optTimeout(200.millis), optNoSimplifications(false))
+  lazy private val solver = semantics.getSolver(solverCtx).toAPI
+  lazy private val solveVALID = (solver.solveVALID(_)).asInstanceOf[Expr => Option[Boolean]]
+  lazy private val solveSAT = (solver.solveSAT(_)).asInstanceOf[Expr => SimpleResponse]
+
+  private[this] var i: Int = 0
+
+  private[this] def runTimeout[A](task: => A): Option[A] = {
+    val future = Future(task)
+    Try(Await.result(future, 200.millis)).toOption
+  }
+
+  implicit class PathOp(val path: Path) {
+    def subsumes(other: Path): Boolean = {
+      (path.elements.toSet subsetOf other.elements.toSet) || {
+        false
+        // val query = implies(other.toClause, path.toClause)
+        // println("sub query  : " + query)
+        // val res = runTimeout(solveVALID(query)).flatten.getOrElse(false)
+        // println("sub res    : " + res)
+        // res
+      }
+    }
+
+    def contains(e: Expr): Boolean = {
+      require(e.getType == BooleanType())
+      i = i + 1
+      val clause = path.toClause
+      // println(s"$i - clause : " + clause)
+      val query = implies(clause, e)
+      // println(s"$i - query  : " + query)
+      // val res = runTimeout(solveSAT(query).isSAT).getOrElse(false)
+      val res = runTimeout(solveVALID(query)).flatten.getOrElse(false)
+
+      res
+    }
+  }
+
+}
+
+trait EvaluatorWithPC extends TransformerWithPC with PathUtil { self =>
   import trees._
   import symbols._
   import exprOps._
@@ -28,210 +75,25 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
   val semantics: Semantics
   val context: Context
 
-  lazy private val solverCtx = context.withOpts(optPartialEval(false), optTimeout(200.millis), optNoSimplifications(false))
-  lazy private val solver = semantics.getSolver(solverCtx).toAPI
-  // lazy private val solve = (solver.solveVALID(_)).asInstanceOf[Expr => Option[Boolean]]
-  lazy private val solve = (solver.solveSAT(_)).asInstanceOf[Expr => SimpleResponse]
+    // val TopLevelOrs(es) = unexpandLets(e)
+    // val conds = conditions.toSeq
+    // val topOr = orJoin(es.distinct.sortBy(_.hashCode))
+    // val query = or(not(andJoin(conds)), topOr)
+    // println("bindings:   " + exprSubst.iterator.toList.mkString(", "))
+    // println("conditions: " + andJoin(conditions.toSeq))
+    // println("query:      " + query)
 
-  class CNFPath private(
-    private val exprSubst: Bijection[Variable, Expr],
-    private val boolSubst: Map[Variable, Seq[Expr]],
-    private val conditions: Set[Expr],
-    private val cnfCache: MutableMap[Expr, Seq[Expr]],
-    private val simpCache: MutableMap[Expr, Seq[Expr]]) extends PathLike[CNFPath] {
+    // val res = runTimeout(solve(query).isSAT).getOrElse(false)
+    // // val res = solve(query).getOrElse(false)
+    // println("result:     " + res)
+    // println()
+    // res
 
-    import exprOps._
-
-    private val MaxFormulaSize: Int = 50
-
-    def subsumes(that: CNFPath): Boolean =
-      (conditions subsetOf that.conditions) &&
-      (exprSubst.forall { case (k, e) => that.exprSubst.getB(k).exists(_ == e) }) &&
-      (boolSubst.forall { case (k, es) =>
-        val eSet = es.toSet
-        that.boolSubst.get(k).exists(_.toSet == eSet)
-      })
-
-    private def unexpandLets(e: Expr, exprSubst: Bijection[Variable, Expr] = exprSubst): Expr = {
-      postMap {
-        case v: Variable => getBinding(v)
-        case _ => None
-      } (e)
-    }
-
-    def contains2(e: Expr): Boolean = {
-      // println(s"CONTAINS BEFORE: $e")
-      // println(s"CONTAINS AFTER : ${unexpandLets(e)}")
-      val TopLevelOrs(es) = unexpandLets(e)
-      val res = conditions contains orJoin(es.distinct.sortBy(_.hashCode))
-      println("conditions: " + andJoin(conditions.toSeq))
-      println("query:      " + orJoin(es.distinct.sortBy(_.hashCode)))
-      println("result:     " + res)
-      // println()
-      res
-    }
-
-    private def runTimeout[A](task: => A): Option[A] = {
-      val future = Future(task)
-      Try(Await.result(future, 200.millis)).toOption
-    }
-
-    def contains(e: Expr): Boolean = {
-      require(e.getType == BooleanType())
-
-      val TopLevelOrs(es) = unexpandLets(e)
-      val conds = conditions.toSeq
-      val topOr = orJoin(es.distinct.sortBy(_.hashCode))
-      val query = or(not(andJoin(conds)), topOr)
-      println("bindings:   " + exprSubst.iterator.toList.mkString(", "))
-      println("conditions: " + andJoin(conditions.toSeq))
-      println("query:      " + query)
-
-
-      val res = runTimeout(solve(query).isSAT).getOrElse(false)
-      // val res = solve(query).getOrElse(false)
-      println("result:     " + res)
-      println()
-      res
-    }
-
-    private def cnf(e: Expr): Seq[Expr] = cnfCache.getOrElseUpdate(e, e match {
-      case Let(i, e, b) => cnf(b).map(Let(i, e, _))
-      case And(es) => es.flatMap(cnf)
-      case Or(es) => es.map(cnf).foldLeft(Seq(BooleanLiteral(false): Expr)) {
-        case (clauses, es) => es.flatMap(e => clauses.map(c => or(e, c)))
-      }
-      case IfExpr(c, t, e) => cnf(and(implies(c, t), implies(not(c), e)))
-      case Implies(l, r) => cnf(or(not(l), r))
-      case Not(Or(es)) => cnf(andJoin(es.map(not)))
-      case Not(Implies(l, r)) => cnf(and(l, not(r)))
-      case Not(Not(e)) => cnf(e)
-      case e => Seq(e)
-    })
-
-    private def simplify(e: Expr): Expr = transform(e, this)
-
-    private def getClauses(e: Expr): Seq[Expr] = simpCache.getOrElseUpdate(e, {
-      val (preds, newE) = liftAssumptions(simplifyLets(unexpandLets(e)))
-      val expr = andJoin(newE +: preds)
-      simpCache.getOrElseUpdate(expr, {
-        val clauses = new scala.collection.mutable.ListBuffer[Expr]
-        for (cl <- cnf(expr)) clauses ++= (simplify(cl) match {
-          case v: Variable =>
-            boolSubst.getOrElse(v, Seq(v))
-
-          case Not(v: Variable) =>
-            boolSubst.getOrElse(v, Seq(v)).foldLeft(Seq(BooleanLiteral(false): Expr)) {
-              case (ors, TopLevelOrs(es)) => es.flatMap(e => ors.map(d => or(d, not(e))))
-            }
-
-          case Or(disjuncts) =>
-            disjuncts.foldLeft(Seq(BooleanLiteral(false): Expr)) {
-              case (ors, d) => d match {
-                case v: Variable => boolSubst.getOrElse(v, Seq(v)).flatMap {
-                  vdisj => ors.map(d => or(d, vdisj))
-                }
-
-                case Not(v: Variable) => boolSubst.getOrElse(v, Seq(v)).foldLeft(ors) {
-                  case (ors, TopLevelOrs(es)) => es.flatMap(e => ors.map(d => or(d, not(e))))
-                }
-
-                case e => ors.map(d => or(d, e))
-              }
-            }
-
-          case e => Seq(e)
-        })
-
-        val clauseSet = clauses.map { case TopLevelOrs(es) => orJoin(es.distinct.sortBy(_.hashCode)) }.toSet
-
-        clauseSet.map { case TopLevelOrs(es) =>
-          val eSet = es.toSet
-          if (es.exists(e => conditions(e) || (eSet contains not(e)))) {
-            BooleanLiteral(true)
-          } else if (es.size > 1 && es.exists(e => clauseSet(e))) {
-            BooleanLiteral(true)
-          } else {
-            orJoin(es.filter(e => !clauseSet(not(e)) && !conditions(not(e))))
-          }
-        }.toSeq.filterNot(_ == BooleanLiteral(true))
-      })
-    })
-
-    override def withBinding(p: (ValDef, Expr)) = {
-      val (vd, expr) = p
-      if (formulaSize(expr) > MaxFormulaSize) {
-        this
-      } else if (vd.tpe == BooleanType()) {
-        new CNFPath(exprSubst, boolSubst + (vd.toVariable -> getClauses(expr)), conditions, cnfCache, simpCache)
-      } else {
-        val newSubst = exprSubst.clone += (vd.toVariable -> unexpandLets(expr))
-        val newBools = boolSubst.mapValues(_.map(unexpandLets(_, newSubst)))
-        val newConds = conditions.map(unexpandLets(_, newSubst))
-
-        for ((k, v) <- cnfCache) {
-          val newK = unexpandLets(k, newSubst)
-          val newV = v.map(unexpandLets(_, newSubst))
-          cnfCache += newK -> newV
-        }
-
-        for ((k, v) <- simpCache) {
-          val newK = unexpandLets(k, newSubst)
-          val newV = v.map(unexpandLets(_, newSubst))
-          simpCache += newK -> newV
-        }
-
-        new CNFPath(newSubst, newBools, newConds, cnfCache, simpCache)
-      }
-    }
-
-    override def withBound(b: ValDef) = this // NOTE CNFPath doesn't need to track such bounds.
-
-    override def withCond(e: Expr) = if (formulaSize(e) > MaxFormulaSize) this else {
-      val clauses = getClauses(e)
-      val clauseSet = clauses.toSet
-      val newConditions = conditions.flatMap { case clause @ TopLevelOrs(es) =>
-        val newClause = orJoin(es.filterNot(e => clauseSet contains not(e)))
-        if (newClause != clause) cnf(newClause) else Seq(clause)
-      }
-
-      val conds = newConditions ++ clauseSet - BooleanLiteral(true)
-
-      new CNFPath(exprSubst, boolSubst, conds, cnfCache, simpCache)
-    }
-
-    override def merge(that: CNFPath) = new CNFPath(
-      exprSubst.clone ++= that.exprSubst,
-      boolSubst ++ that.boolSubst,
-      conditions ++ that.conditions,
-      cnfCache ++= that.cnfCache,
-      simpCache ++= that.simpCache
-    )
-
-    override def negate = new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) withConds conditions.map(not)
-
-    override def toString = conditions.toString
-
-    def getBinding(v: Variable): Option[Expr] = {
-      // exprSubst.getA(v)
-      exprSubst.find(_._1.id == v.id).map(_._2)
-    }
-  }
-
-  implicit object CNFPath extends PathProvider[CNFPath] {
-    def empty = new CNFPath(new Bijection[Variable, Expr], Map.empty, Set.empty, MutableMap.empty, MutableMap.empty)
-    def apply(path: Path) = path.elements.foldLeft(empty) {
-      case (path, Path.CloseBound(vd, e)) => path withBinding (vd -> transform(e, path))
-      case (path, Path.OpenBound(_)) => path // NOTE CNFPath doesn't need to track such bounds.
-      case (path, Path.Condition(c)) => path withCond transform(c, path)
-    }
-  }
-
-  type Env = CNFPath
+  type Env = Path
 
   // @nv: note that we make sure the initial env is fresh each time
   //      (since aggressive caching of cnf computations is taking place)
-  def initEnv: CNFPath = CNFPath.empty
+  def initEnv: Env = Path.empty
 
   private[this] var dynStack: DynamicVariable[List[Int]] = new DynamicVariable(Nil)
   // private[this] var dynPurity: DynamicVariable[List[Boolean]] = new DynamicVariable(Nil)
@@ -247,7 +109,7 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
     true
   }
 
-  private def isInstanceOf(e: Expr, tpe: ADTType, path: CNFPath): Option[Boolean] = {
+  private def isInstanceOf(e: Expr, tpe: ADTType, path: Env): Option[Boolean] = {
     val tadt = tpe.getADT
     if (tadt.definition.isSort) {
       Some(true)
@@ -269,13 +131,13 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
     }
   }
 
-  def isPure(e: Expr, path: CNFPath): Boolean = true
+  def isPure(e: Expr, path: Env): Boolean = true
 
-  private val simplifyCache = new LruCache[Expr, (CNFPath, Expr)](100)
+  private val simplifyCache = new LruCache[Expr, (Env, Expr)](100)
 
-  private def simplify(e: Expr, path: CNFPath): Expr = {
+  private def simplify(e: Expr, path: Env): Expr = {
     val cached = simplifyCache.get(e).filter(_._1.subsumes(path)).map(_._2)
-    cached match {
+    val res = cached match {
       case None =>
         val res = simplifyExpr(e, path)
         simplifyCache(e) = path -> res
@@ -284,16 +146,27 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
       case Some(res) =>
         res
     }
+    println("")
+    println("=============================")
+    println(e)
+    println("-----------------------------")
+    println(res)
+    println("-----------------------------")
+    println("")
+    res
   }
 
-  private def simplifyExpr(e: Expr, path: CNFPath): Expr = e match {
+  private def simplifyExpr(e: Expr, path: Env): Expr = e match {
     case e if isGround(e) =>
       val evalCtx = context.withOpts(evaluators.optEvalQuantifiers(false))
       val evaluator = semantics.getEvaluator(context)
       evaluator.eval(e).result.map(exprOps.freshenLocals(_)).getOrElse(e)
 
-    case e if path contains e => BooleanLiteral(true)
-    case e if path contains not(e) => BooleanLiteral(false)
+    case e if e.getType == BooleanType() && (path contains e) =>
+      BooleanLiteral(true)
+
+    case e if e.getType == BooleanType() && (path contains not(e)) =>
+      BooleanLiteral(false)
 
     // case v: Variable if path.getBinding(v).isDefined =>
     //   val e = path.getBinding(v).get
@@ -584,11 +457,11 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
       re
   }
 
-  private def simplifyAndCons(es: Seq[Expr], path: CNFPath, cons: Seq[Expr] => Expr): Expr = {
+  private def simplifyAndCons(es: Seq[Expr], path: Env, cons: Seq[Expr] => Expr): Expr = {
     cons(es.map(simplify(_, path)))
   }
 
-  private def tryReduce(expr: Expr, path: CNFPath): Option[Expr] = expr match {
+  private def tryReduce(expr: Expr, path: Env): Option[Expr] = expr match {
     case IfExpr(cnd, thn, els) => simplify(cnd, path) match {
       case BooleanLiteral(true) => Some(thn)
       case BooleanLiteral(false) => Some(els)
@@ -623,7 +496,7 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
     case _ => None
   }
 
-  override protected def rec(e: Expr, path: CNFPath): Expr = {
+  override protected def rec(e: Expr, path: Env): Expr = {
     dynStack.value = if (dynStack.value.isEmpty) Nil else (dynStack.value.head + 1) :: dynStack.value.tail
     val re = simplify(e, path)
     // dynPurity.value = if (dynStack.value.isEmpty) dynPurity.value else pe :: dynPurity.value
