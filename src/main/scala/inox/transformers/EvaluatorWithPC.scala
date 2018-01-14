@@ -3,7 +3,11 @@
 package inox
 package transformers
 
+import scala.language.existentials
+
 import utils._
+import solvers._
+import SolverResponses._
 
 import scala.util.DynamicVariable
 import scala.collection.mutable.{Map => MutableMap}
@@ -40,12 +44,20 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
       })
 
     private def unexpandLets(e: Expr, exprSubst: Bijection[Variable, Expr] = exprSubst): Expr = {
-      postMap(exprSubst.getA)(e)
+      postMap {
+        case v: Variable => getBinding(v)
+        case _ => None
+      } (e)
     }
 
-    def contains(e: Expr) = {
+    def contains(e: Expr): Boolean = {
       val TopLevelOrs(es) = unexpandLets(e)
-      conditions contains orJoin(es.distinct.sortBy(_.hashCode))
+      val res = conditions contains orJoin(es.distinct.sortBy(_.hashCode))
+      println("conditions: " + andJoin(conditions.toSeq))
+      println("query:      " + orJoin(es.distinct.sortBy(_.hashCode)))
+      println("result:     " + res)
+      println()
+      res
     }
 
     private def cnf(e: Expr): Seq[Expr] = cnfCache.getOrElseUpdate(e, e match {
@@ -164,6 +176,11 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
     override def negate = new CNFPath(exprSubst, boolSubst, Set(), cnfCache, simpCache) withConds conditions.map(not)
 
     override def toString = conditions.toString
+
+    def getBinding(v: Variable): Option[Expr] = {
+      // exprSubst.getA(v)
+      exprSubst.find(_._1.id == v.id).map(_._2)
+    }
   }
 
   implicit object CNFPath extends PathProvider[CNFPath] {
@@ -221,7 +238,20 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
 
   private val simplifyCache = new LruCache[Expr, (CNFPath, Expr)](100)
 
-  private def simplify(e: Expr, path: CNFPath): Expr = e match {
+  private def simplify(e: Expr, path: CNFPath): Expr = {
+    val cached = simplifyCache.get(e).filter(_._1.subsumes(path)).map(_._2)
+    cached match {
+      case None =>
+        val res = simplifyExpr(e, path)
+        simplifyCache(e) = path -> res
+        res
+
+      case Some(res) =>
+        res
+    }
+  }
+
+  private def simplifyExpr(e: Expr, path: CNFPath): Expr = e match {
     case e if isGround(e) =>
       val evalCtx = context.withOpts(evaluators.optEvalQuantifiers(false))
       val evaluator = semantics.getEvaluator(context)
@@ -230,8 +260,16 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
     case e if path contains e => BooleanLiteral(true)
     case e if path contains not(e) => BooleanLiteral(false)
 
-    case c @ Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) => c
-    case c: Choose => c
+    // case v: Variable if path.getBinding(v).isDefined =>
+    //   val e = path.getBinding(v).get
+    //   println(s"\nfound binding: $v ==> $e\n")
+    //   e
+
+    case c @ Choose(res, BooleanLiteral(true)) if hasInstance(res.tpe) == Some(true) =>
+      c
+
+    case c: Choose =>
+      c
 
     case Lambda(args, body) =>
       val rb = simplify(body, path)
@@ -309,12 +347,26 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
 
     case AsInstanceOf(e, tpe: ADTType) =>
       val re = simplify(e, path)
-      AsInstanceOf(re, tpe)
+      re.getType match {
+        case reTpe: ADTType if reTpe.id == tpe.id => re
+        case _ => AsInstanceOf(re, tpe)
+      }
 
     case Let(vd, IfExpr(c1, t1, e1), IfExpr(c2, t2, e2)) if c1 == c2 =>
       simplify(IfExpr(c1, Let(vd, t1, t2), Let(vd, e1, e2)), path)
 
-    case Let(vd, v: Variable, b) => simplify(replaceFromSymbols(Map(vd -> v), b), path)
+    case Let(vd, v: Variable, b) =>
+      simplify(replaceFromSymbols(Map(vd -> v), b), path)
+
+//     case let @ Let(vd, e, b) =>
+//       simplifyCache.get(let)
+//         .filter(_._1.subsumes(path))
+//         .map(p => p._2)
+//         .getOrElse {
+//           val re = simplify(e, path)
+//           val rb =  simplify(b, path withBinding (vd -> re))
+//           replaceFromSymbols(Map(vd -> re), rb)
+//         }
 
     // case let @ Let(vd, e, b) =>
     //   val re = simplify(e, path)
@@ -342,20 +394,53 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
     //      In `assumeChecked` mode, the cost should be lower as most lets with
     //      `insts <= 1` will be inlined immediately.
     case let @ Let(vd, e, b) =>
-      simplifyCache.get(let)
-        .filter(_._1.subsumes(path))
-        .map(p => p._2)
-        .getOrElse {
+      val re = simplify(e, path)
+      re match {
+        case Tuple(es) if {
+          val v = vd.toVariable
+          def rec(e: Expr): Boolean = e match {
+            case TupleSelect(`v`, idx) => true
+            case `v` => false
+            case Operator(es, _) => es.forall(rec)
+          }
+          rec(b)
+        } =>
+          val indexes = (1 to es.length).toSeq
+          val selectors = indexes.map(idx => TupleSelect(vd.toVariable, idx))
+          val vds = indexes.map(idx => ValDef(FreshIdentifier(s"${vd.id}_$idx"), es(idx - 1).getType))
+          val selectorMap: Map[Expr, Expr] = (selectors zip vds.map(_.toVariable)).toMap
+          simplify((vds zip es).foldRight(replace(selectorMap, b)) { case ((vd, e), b) => Let(vd, e, b) }, path)
+
+        case ADT(tpe, es) if {
+          val v = vd.toVariable
+          def rec(e: Expr): Boolean = e match {
+            case ADTSelector(`v`, id) => true
+            case `v` => false
+            case Operator(es, _) => es.forall(rec)
+          }
+          rec(b)
+        } =>
+          val tadt = tpe.getADT.toConstructor
+          val vds = tadt.fields.map(_.freshen)
+          val selectors = tadt.fields.map(f => ADTSelector(vd.toVariable, f.id))
+          val selectorMap: Map[Expr, Expr] = (selectors zip vds.map(_.toVariable)).toMap
+          simplify((vds zip es).foldRight(replace(selectorMap, b)) { case ((vd, e), b) => Let(vd, e, b) }, path)
+
+        // @nv: Simplifying lets can lead to exponential simplification cost.
+        //      The `simplifyCache` greatly reduces the cost of simplifying lets but
+        //      there are still corner cases that will make this expensive.
+        //      In `assumeChecked` mode, the cost should be lower as most lets with
+        //      `insts <= 1` will be inlined immediately.
+        case e =>
           val re = simplify(e, path)
           val rb = simplify(b, path withBinding (vd -> re))
-
           val v = vd.toVariable
           lazy val insts = count { case `v` => 1 case _ => 0 }(rb)
           lazy val inLambda = exists { case l: Lambda => variablesOf(l) contains v case _ => false }(rb)
-          lazy val immediateCall = true // existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
+          lazy val immediateCall = existsWithPC(rb) { case (`v`, path) => path.isEmpty case _ => false }
           lazy val containsLambda = exists { case l: Lambda => true case _ => false }(re)
 
-          val lete = if (
+          if (
             ((!inLambda || (inLambda && !containsLambda)) && insts <= 1) ||
             (!inLambda && immediateCall && insts == 1)
           ) {
@@ -370,11 +455,7 @@ trait EvaluatorWithPC extends TransformerWithPC { self =>
               case _ => let
             }
           }
-
-          simplifyCache(let) = (path, lete)
-          lete
-        }
-
+      }
 
     case Equals(e1: Literal[_], e2: Literal[_]) =>
       BooleanLiteral(e1 == e2)
