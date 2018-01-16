@@ -41,21 +41,6 @@ trait SymbolOps { self: TypeOps =>
     simplifierCache.getOrElseUpdate(purityOpts, createSimplifier(purityOpts))
   }
 
-  protected class EvaluatorWithPC(val opts: PurityOptions, val context: Context, val semantics: Semantics) extends transformers.EvaluatorWithPC {
-    val trees: self.trees.type = self.trees
-    val symbols: self.symbols.type = self.symbols
-  }
-
-  /** Override point for partial evaluator creation */
-  protected def createPartialEvaluator(opts: PurityOptions, ctx: Context, sem: Semantics): EvaluatorWithPC = {
-    new EvaluatorWithPC(opts, ctx, sem)
-  }
-
-  private var partialEvaluatorCache: MutableMap[(PurityOptions, Context, Semantics), EvaluatorWithPC] = MutableMap.empty
-  def partialEvaluator(implicit opts: PurityOptions, ctx: Context, sem: Semantics): EvaluatorWithPC = synchronized {
-    partialEvaluatorCache.getOrElseUpdate((opts, ctx, sem), createPartialEvaluator(opts, ctx, sem))
-  }
-
   /** Replace each node by its constructor
     *
     * Remap the expression by calling the corresponding constructor
@@ -87,16 +72,6 @@ trait SymbolOps { self: TypeOps =>
 
   def simplifyExpr(expr: Expr)(implicit opts: PurityOptions, ctx: Context): Expr = {
     simplifier.transform(expr)
-  }
-
-  def partialEval(expr: Expr)(implicit opts: PurityOptions, ctx: Context, sem: Semantics): Expr =  {
-    val enabled = ctx.options.findOptionOrDefault(transformers.optPartialEval)
-    if (!enabled) return expr
-
-    val res: Expr = partialEvaluator.transform(expr)
-    ctx.reporter.info(s"BEFORE (${expr.getClass}):\n=======\n" + expr + "\n")
-    ctx.reporter.info(s"AFTER (${expr.getClass}):\n=======\n" + res + "\n")
-    res
   }
 
   /** Normalizes the expression expr */
@@ -1296,7 +1271,6 @@ trait SymbolOps { self: TypeOps =>
 
     if (simpOpts.simplify) {
       val simp: Expr => Expr =
-        ((e: Expr) => partialEval(e))         compose
         ((e: Expr) => simplifyGround(e))      compose
         ((e: Expr) => simplifyHOFunctions(e)) compose
         ((e: Expr) => simplifyExpr(e))        compose
