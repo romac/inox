@@ -29,7 +29,8 @@ trait Transformer {
 
   /** Transform an [[ast.Expressions.Expr Expr]] with the initial environment */
   final def transform(e: Expr): Expr    = transform(e, initEnv)
+
   /** Transform the body of a [[ast.Definitions.FunDef FunDef]] */
-  final def transform(fd: FunDef): Expr = transform(fd.fullBody)
+  def transform(fd: FunDef): Expr = transform(fd.fullBody)
 }
 
