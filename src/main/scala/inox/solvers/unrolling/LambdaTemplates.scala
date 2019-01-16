@@ -7,6 +7,10 @@ package unrolling
 import utils._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
+object optDecideLambdaEquality extends FlagOptionDef("decide-lambda-equality", true) {
+  override val usageRhs: String = "false"
+}
+
 trait LambdaTemplates { self: Templates =>
   import context._
   import program._
@@ -16,6 +20,8 @@ trait LambdaTemplates { self: Templates =>
   import typesManager._
   import lambdasManager._
   import quantificationsManager._
+
+  private lazy val decideLambdaEquality = options.findOptionOrDefault(optDecideLambdaEquality)
 
   /** Represents a POTENTIAL application of a first-class function in the unfolding procedure
     *
@@ -411,25 +417,34 @@ trait LambdaTemplates { self: Templates =>
       val equals = mkEquals(template.ids._2, that.ids._2)
       val (blocker, blockerClauses) = encodeBlockers(Set(template.start, that.start))
       clauses ++= blockerClauses
-      clauses += mkImplies(
-        blocker,
-        if (typeOps.simplify(template.structure.body) == typeOps.simplify(that.structure.body)) {
-          val pairs = template.structure.locals zip that.structure.locals
-          val filtered = pairs.filter(p => p._1 != p._2)
-          if (filtered.isEmpty) {
-            equals
-          } else {
-            val equalities = filtered.map { case ((v, e1), (_, e2)) =>
-              val (equality, equalityClauses) = mkEqualities(blocker, v.getType, e1, e2, register = false)
-              clauses ++= equalityClauses
-              equality
-            }
-            mkEquals(mkAnd(equalities : _*), equals)
-          }
+
+      val equalityClause = if (typeOps.simplify(template.structure.body) == typeOps.simplify(that.structure.body)) {
+        val pairs = template.structure.locals zip that.structure.locals
+        val filtered = pairs.filter(p => p._1 != p._2)
+        if (filtered.isEmpty) {
+          Some(equals)
         } else {
-          mkNot(equals)
-        })
+          val equalities = filtered.map { case ((v, e1), (_, e2)) =>
+            val (equality, equalityClauses) = mkEqualities(blocker, v.getType, e1, e2, register = false)
+            clauses ++= equalityClauses
+            equality
+          }
+
+          if (decideLambdaEquality) Some(mkEquals(mkAnd(equalities : _*), equals))
+          else Some(mkImplies(mkAnd(equalities : _*), equals))
+        }
+      } else if (decideLambdaEquality) {
+        Some(mkNot(equals))
+      } else {
+        None
+      }
+
+      println('decideLambdaEquality -> decideLambdaEquality)
+      println('equalityClause -> equalityClause.map(mkImplies(blocker, _)))
+
+      clauses ++= equalityClause.map(mkImplies(blocker, _)).toSeq
     }
+
     clauses.toSeq
   }
 
