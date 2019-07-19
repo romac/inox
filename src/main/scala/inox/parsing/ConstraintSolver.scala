@@ -3,6 +3,7 @@
 package inox
 package parsing
 
+import scala.collection.compat._
 import scala.util.parsing.input._
 
 trait ConstraintSolvers { self: Elaborators =>
@@ -71,7 +72,7 @@ trait ConstraintSolvers { self: Elaborators =>
         val subst = new Unifier(Map(u -> t))
         unknowns -= u
         remaining = remaining.map(subst(_))
-        substitutions = substitutions.mapValues(subst(_)).view.force
+        substitutions = substitutions.view.mapValues(subst(_)).toMap
         substitutions += (u -> t)
         tupleConstraints = tupleConstraints.mapValues(_.map(subst(_))).view.force
         sortConstraints = sortConstraints.mapValues(_.mapValues(

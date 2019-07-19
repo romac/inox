@@ -6,6 +6,7 @@ package unrolling
 
 import utils._
 
+import scala.collection.compat._
 import scala.collection.generic.CanBuildFrom
 
 trait Templates
@@ -20,6 +21,8 @@ trait Templates
   val program: Program
   val context: Context
   protected implicit val semantics: program.Semantics
+
+  implicit val debugSection = DebugSectionSolver
 
   import context._
   import program._
@@ -108,7 +111,7 @@ trait Templates
     tree: Map[Variable, Set[Variable]]): Map[Encoded, Encoded] = {
 
     val subst = condVars.map { case (v, idT) => idT -> encodeSymbol(v) }
-    val mapping = condVars.mapValues(subst)
+    val mapping = condVars.view.mapValues(subst).toMap
 
     for ((parent, children) <- tree) {
       mapping.get(parent) match {
@@ -205,8 +208,6 @@ trait Templates
 
     promoted
   }
-
-  implicit val debugSection = DebugSectionSolver
 
   type Arg = Either[Encoded, Matcher]
 
@@ -491,13 +492,13 @@ trait Templates
       val tmplClauses = contents.instantiate(substMap)
       val instantiation = substClauses ++ tmplClauses
 
-      val substituter = mkSubstituter(substMap.mapValues(_.encoded))
+      val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
       val deps = dependencies.map(substituter)
       val key = (body, blockerPath(contents.pathVar._2), deps)
 
       val sortedDeps = exprOps.variablesOf(body).toSeq.sortBy(_.id)
       val locals = sortedDeps zip deps
-      (key, instantiation, locals, substMap.mapValues(_.encoded))
+      (key, instantiation, locals, substMap.view.mapValues(_.encoded).toMap)
     }
 
     override def equals(that: Any): Boolean = that match {
@@ -733,12 +734,12 @@ trait Templates
 
       val matcherSubst = baseSubst.collect { case (c, Right(m)) => c -> m }
 
-      var subst = freshSubst.mapValues(Left(_)) ++ baseSubst
+      var subst = freshSubst.view.mapValues(Left(_)).toMap ++ baseSubst
       var clauses : Clauses = Seq.empty
 
       // We instantiate types before quantifications in order to register functions
       // before trying to instantiate matchers introduced by quantifications
-      val baseSubstituter = mkSubstituter(subst.mapValues(_.encoded))
+      val baseSubstituter = mkSubstituter(subst.view.mapValues(_.encoded).toMap)
       for ((b, tps) <- types if !abort; bp = baseSubstituter(b); tp <- tps if !abort) {
         clauses ++= instantiateType(bp, tp.substitute(baseSubstituter, matcherSubst))
       }
@@ -757,7 +758,7 @@ trait Templates
         } extractSubst(dep)
 
         if (!seen(lambda)) {
-          val substMap = subst.mapValues(_.encoded)
+          val substMap = subst.view.mapValues(_.encoded).toMap
           val substLambda = lambda.substitute(mkSubstituter(substMap), matcherSubst)
           val (idT, cls) = instantiateLambda(substLambda)
           subst += lambda.ids._2 -> Left(idT)
@@ -772,14 +773,14 @@ trait Templates
       // extra quantifier instantiations that arise due to empty domains
       val (others, positives) = quants.partition(_.polarity.isNegative)
       for (q <- others ++ positives) {
-        val substMap = subst.mapValues(_.encoded)
+        val substMap = subst.view.mapValues(_.encoded).toMap
         val substQuant = q.substitute(mkSubstituter(substMap), matcherSubst)
         val (map, cls) = instantiateQuantification(substQuant)
-        subst ++= map.mapValues(Left(_))
+        subst ++= map.view.mapValues(Left(_)).toMap
         clauses ++= cls
       }
 
-      val substituter = mkSubstituter(subst.mapValues(_.encoded))
+      val substituter = mkSubstituter(subst.view.mapValues(_.encoded).toMap)
       for ((ptr, lambda) <- pointers) {
         registerLambda(substituter(ptr), substituter(lambda))
       }
@@ -795,7 +796,7 @@ trait Templates
       equalities: Equalities,
       substMap: Map[Encoded, Arg]
     ): Clauses = {
-      val substituter : Encoded => Encoded = mkSubstituter(substMap.mapValues(_.encoded))
+      val substituter : Encoded => Encoded = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
       val msubst = substMap.collect { case (c, Right(m)) => c -> m }
 
       val allClauses = new scala.collection.mutable.ListBuffer[Encoded]

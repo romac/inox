@@ -2,23 +2,25 @@
 
 package inox.utils
 
+import scala.collection.compat._
+
 object GraphOps {
-  
+
   /**
    * Takes an graph in form of a map (vertex -> out neighbors).
    * Returns a topological sorting of the vertices (Right value) if there is one.
-   * If there is none, it returns the set of vertices that belong to a cycle 
+   * If there is none, it returns the set of vertices that belong to a cycle
    * or come before a cycle (Left value)
    */
   def topologicalSorting[A](toPreds: Map[A,Set[A]]) : Either[Set[A], Seq[A]] = {
     def tSort(toPreds: Map[A, Set[A]], done: Seq[A]): Either[Set[A], Seq[A]] = {
       val (noPreds, hasPreds) = toPreds.partition { _._2.isEmpty }
       if (noPreds.isEmpty) {
-        if (hasPreds.isEmpty) Right(done.reverse) 
+        if (hasPreds.isEmpty) Right(done.reverse)
         else Left(hasPreds.keySet)
       } else {
         val found : Seq[A] = noPreds.keys.toSeq
-        tSort(hasPreds mapValues { _ -- found }, found ++ done)    
+        tSort(hasPreds.view.mapValues(_ -- found).toMap, found ++ done)
       }
     }
     tSort(toPreds, Seq())
@@ -33,16 +35,16 @@ object GraphOps {
     }
     fixpoint(step, -1)(graph)
   }
-  
+
   def sources[A](graph : Map[A,Set[A]]) = {
     val notSources = graph.values.toSet.flatten
     graph.keySet -- notSources
   }
-  
-  def sinks[A](graph : Map[A,Set[A]]) = 
+
+  def sinks[A](graph : Map[A,Set[A]]) =
     graph.collect{ case (v, out) if out.isEmpty => v }.toSet
   /**
-   * Returns the set of reachable nodes from a given node, 
+   * Returns the set of reachable nodes from a given node,
    * not including the node itself (unless it is member of a cycle)
    * @param next A function giving the nodes directly accessible from a given node
    * @param source The source from which to begin the search
@@ -59,9 +61,9 @@ object GraphOps {
     rec (source)
     seen
   }
-  
+
   /**
-   * Returns true if there is a path from source to target. 
+   * Returns true if there is a path from source to target.
    * @param next A function giving the nodes directly accessible from a given node
    */
   def isReachable[A](next : A => Set[A], source : A, target : A) : Boolean = {
@@ -72,6 +74,6 @@ object GraphOps {
       (next(current) contains target) || (notSeen exists rec)
     }
     rec(source)
-  } 
-  
+  }
+
 }

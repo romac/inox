@@ -10,6 +10,7 @@ import theories._
 import evaluators._
 import combinators._
 
+import scala.collection.compat._
 import scala.collection.mutable.{Map => MutableMap, ListBuffer}
 
 object optUnrollFactor      extends IntOptionDef("unroll-factor", default = 1, "<PosInt>")
@@ -495,6 +496,7 @@ trait AbstractUnrollingSolver extends Solver { self =>
 
           val sortedArguments = withConds
             .groupBy(_._2)
+            .view
             .mapValues(_.head._1)
             .toSeq
             .sortBy(p => -exprOps.formulaSize(p._1))

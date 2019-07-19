@@ -8,6 +8,7 @@ import solvers.{PurityOptions, SimplificationOptions}
 import evaluators.EvaluationResults._
 import transformers._
 
+import scala.collection.compat._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 object SymbolOps {
@@ -1142,7 +1143,7 @@ trait SymbolOps { self: TypeOps =>
             op.sup(e, path)
         })
 
-        pathFis.groupBy(_._2.tfd).mapValues(_.map(p => (p._1, p._2.args)).toSet)
+        pathFis.groupBy(_._2.tfd).view.mapValues(_.map(p => (p._1, p._2.args)).toSet).toMap
       }
 
       def replace(path: Path, oldE: Expr, newE: Expr, body: Expr): Expr =

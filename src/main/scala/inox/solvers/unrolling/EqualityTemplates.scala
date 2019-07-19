@@ -6,6 +6,7 @@ package unrolling
 
 import utils._
 
+import scala.collection.compat._
 import scala.collection.mutable.{Set => MutableSet, Map => MutableMap}
 
 /** Incrementally unfolds equality relations between types for which the
@@ -76,7 +77,7 @@ trait EqualityTemplates { self: Templates =>
         Map.empty, substMap)
 
       // register equalities (WILL NOT lead to any [[instantiate]] calls)
-      val substituter = mkSubstituter(substMap.mapValues(_.encoded))
+      val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
       for ((b, eqs) <- contents.equalities; bp = substituter(b); equality <- eqs) {
         registerEquality(bp, equality.substitute(substituter))
       }

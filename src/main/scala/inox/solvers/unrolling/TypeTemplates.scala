@@ -6,6 +6,7 @@ package unrolling
 
 import utils._
 
+import scala.collection.compat._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet}
 
 /** Performs incremental ADT unfolding and enables support for ADT invariants as well
@@ -208,7 +209,7 @@ trait TypeTemplates { self: Templates =>
     }
 
     override def instantiate(substMap: Map[Encoded, Arg]): Clauses = {
-      val substituter = mkSubstituter(substMap.mapValues(_.encoded))
+      val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
 
       val sc = substituter(container)
       val sfuns = functions.map(substituter)

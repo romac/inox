@@ -37,11 +37,12 @@ resolvers ++= Seq(
 )
 
 libraryDependencies ++= Seq(
+  "org.scala-lang.modules" %% "scala-collection-compat" % "2.1.1",
   "org.scalatest" %% "scalatest" % "3.0.1" % "test;it",
   "org.apache.commons" % "commons-lang3" % "3.4",
   "org.scala-lang" % "scala-reflect" % scalaVersion.value,
   "com.regblanc" %% "scala-smtlib" % "0.2.2-7-g00a9686",
-  "uuverifiers" %% "princess" % "2018-02-26"
+  "uuverifiers" %% "princess" % "2018-02-26",
 )
 
 lazy val scriptName = settingKey[String]("Name of the generated 'inox' script")

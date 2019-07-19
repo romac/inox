@@ -7,6 +7,7 @@ package unrolling
 import utils._
 import evaluators._
 
+import scala.collection.compat._
 import scala.collection.mutable.{Map => MutableMap, Set => MutableSet, Queue}
 
 trait QuantificationTemplates { self: Templates =>
@@ -482,7 +483,7 @@ trait QuantificationTemplates { self: Templates =>
           val cost = if (initGens.nonEmpty) {
             1 + 3 * map.values.collect { case Right(m) => totalDepth(m) }.sum
           } else {
-            val substituter = mkSubstituter(map.mapValues(_.encoded))
+            val substituter = mkSubstituter(map.view.mapValues(_.encoded).toMap)
             val msubst = map.collect { case (q, Right(m)) => q -> m }
             val opts = optimizationQuorums.flatMap { ms =>
               val sms = ms.map(_.substitute(substituter, msubst))
@@ -595,7 +596,7 @@ trait QuantificationTemplates { self: Templates =>
           clauses ++= substClauses
 
           val msubst = substMap.collect { case (c, Right(m)) => c -> m }
-          val substituter = mkSubstituter(substMap.mapValues(_.encoded))
+          val substituter = mkSubstituter(substMap.view.mapValues(_.encoded).toMap)
           registerBlockers(substituter)
 
           // matcher instantiation must be manually controlled here to avoid never-ending loops
